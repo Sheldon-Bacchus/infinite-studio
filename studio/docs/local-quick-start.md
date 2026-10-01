@@ -5,9 +5,10 @@
 ### 第一次启动
 
 1. 确认 Windows 已安装 Go、Node.js 和 Bun。
-2. 双击桌面 `无限片场\启动无限片场.cmd`，或在仓库根目录运行下面命令：
+2. 双击桌面 `无限片场\启动无限片场.cmd`，或从仓库根目录进入 `studio/` 后运行：
 
 ```powershell
+Set-Location .\studio
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
 ```
 
@@ -20,12 +21,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
 
 - 虾料/片场工作区：`http://127.0.0.1:43862/xiaji`
 - API 健康检查：`http://127.0.0.1:8086/api/health`
-- SQLite：本仓库的 `data/infinite-canvas.db`
-- 媒体和文件：`data/files/`
-- 启动日志：`data/logs/quick-start/`
+- SQLite：`studio/data/infinite-canvas.db`
+- 媒体和文件：`studio/data/files/`
+- 启动日志：`studio/data/logs/quick-start/`
 - 该启动器只运行无限片场网页和 API，不启动 Codex Agent、MCP 或 Bridge。
-- Infinite Canvas 源码快照位于同一仓库的 `implementations/infinite-canvas/`，保留独立运行入口；本启动器只运行根目录的 Infinite Studio，不会读写快照自身的数据目录。
-- 请使用根目录的 `start-local.ps1`；各来源快照中的旧启动脚本不控制根应用。
+- Infinite Canvas 项目位于同一仓库的 `canvas/`，保留独立运行入口；本启动器只运行 `studio/` 中的 Infinite Studio，不会读写 Canvas 自身的数据目录。
+- 请在 Studio 项目目录使用 `start-local.ps1`；Canvas 中的启动脚本不控制 Studio。
 
 ## 待机与手动停止
 

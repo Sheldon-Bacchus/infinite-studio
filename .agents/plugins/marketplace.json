@@ -8,7 +8,7 @@
       "name": "canvas-agent",
       "source": {
         "source": "local",
-        "path": "./canvas-agent"
+        "path": "./studio/canvas-agent"
       },
       "policy": {
         "installation": "AVAILABLE",

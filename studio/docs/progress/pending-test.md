@@ -7,7 +7,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
-- 单仓库整合内容：本仓库新增 Infinite Canvas 与社区 MCP 源码快照、来源记录及 Canvas 导演台静态目录；本次未运行安装、编译、测试或浏览器验收。需按 [`IMPLEMENTATIONS.md`](../../IMPLEMENTATIONS.md) 对照源码提交和许可证，并由用户确认所需功能与安装入口。
+- 仓库重组：无限片场位于 `studio/`，无限画布及其文档、插件、存储实现位于 `canvas/`，社区 MCP 位于 `canvas/mcp/`。MCP 和插件不是独立项目。本次仅移动源码与更新路径，没有运行安装、编译、测试或浏览器验收；来源提交与许可证见[项目清单](../../IMPLEMENTATIONS.md)。
 - 根应用工作流合并：包含 GitHub `main` 的 RunningHub / ComfyUI Bridge 更新与本地 Infinite Studio 改动；本次没有编译或运行服务。需按本项目安装入口手动验证工作流字段映射、提交/恢复、桥接预览和本地数据保存。
 - Codex Agent 手动连接：网页新增本地地址和 Token 输入、直接启动命令及本地连接信息记忆；已保留对应测试源文件，但本次未运行测试。需手动确认插件自动连接、手动 Token 连接、刷新后保存、断开及错误提示。
 
@@ -30,7 +30,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - Agent / MCP 目标锁定与工具刷新：安装 `@tigerowo/canvas-agent@0.2.0` 后，在至少两个画布同时连接时用 `list_connected_canvases` 查看 ID，按目标 `canvasId` 调用 `select_canvas`；确认摘要 ID 与选中 ID 一致、未锁定时不执行画布工具、同画布多标签必须指定 `clientId`；重新连接后确认 `tools/list_changed` 会刷新新增/更新的工具，并确认断开目标后旧工具不再调用其他画布。
 - [历史状态，早于本轮浏览器 E2E] DramaClaw 虾料/虾塘/虾镜/虾面本地移植（2026-09-25；[规格](../superpowers/specs/2026-09-24-dramaclaw-local-creative-suite.md)、[计划](../superpowers/plans/2026-09-24-dramaclaw-local-creative-suite.md)、[来源控件矩阵](../superpowers/artifacts/dramaclaw-local-creative-suite/source-to-target-matrix.md)）：本轮在 `web/` 执行 `bun test` 为 57 files、249 pass、0 fail、926 expect；本地 TypeScript 检查通过；Turbopack 生产构建成功（编译 15.6 秒，静态页生成期间因后端不可用记录两条读取/持久化告警）。修复了无项目上下文时“虾面”导航回到项目列表的缺陷，并增加导航模型测试。运行中的 3000 前端未能安全重启，浏览器还未确认新禁用态。CUA 曾在生产模式打开 `/xiaji/projects` 并显示空项目状态；这只验证了该路由可加载，登录后创作/发送/回主线/刷新 E2E 未运行。来源/目标逐控件和同尺寸截图比较未完成；逐文件 SPDX/license manifest 和维护者许可审阅未完成。无本地等价能力的 Director World 3D 操作、多镜头成片/混音保持未实现并需在 UI 如实禁用说明。仓库根目录执行的 `bun test` 会把 `integrations/dramaclaw/frontend` 的上游测试也纳入，产生缺依赖/错误工作目录等失败；其中另有一条 MCP 工具清单断言失败，不能将该根目录结果算作虾X验收。
 - 新增系统 Skills：DramaClaw 画布导入、DramaClaw 画布排版、H3 画布提示词与 AutoDL 工作流。已有数据库启动一次后需重启后端，确认新增 Skill 出现在画布 Agent 的 Skill 面板。
-- 本地素材包导入（历史记录）：记录了素材导入、节点回读与素材分组结果；具体用户素材、媒体包和创作内容未收录到公开仓库。需以当前代码重新执行验收；素材组的实现来源、测试文件和待验收项见[对话纪要](../conversations/canvas-asset-groups.md)。
+- 本地素材包导入（历史记录）：记录了素材导入、节点回读与素材分组结果；具体用户素材、媒体包和创作内容未收录到公开仓库。需以当前代码重新执行验收；素材组的实现来源、测试文件和待验收项见[对话纪要](../../../canvas/docs/conversations/canvas-asset-groups.md)。
 - 虾料/虾塘/虾镜浏览器 E2E（2026-09-25；虾面不在本轮）：最新续跑已通过虾料保存/刷新、项目内虾塘角色/身份/场景/变体/道具/声线槽位持久化子集，以及虾镜分集/Beat/合成页交互。发现剧本保存后刷新为空、Beat 保存 toast 误报、枚举和身份名称显示异常。首轮 Next chunk 404 在续跑中未复现（当前响应 200），历史根因未知。14 个临时 Asset 精确清理后回到原基线。媒体操作、重复序号、伪造跨项目引用、DevTools Network、来源截图对照未完成；单测、集成、TS、build 本轮未运行。详见[运行记录](../superpowers/artifacts/dramaclaw-local-creative-suite/e2e-run-2026-09-25.md)、[验收规格](../superpowers/specs/2026-09-25-xiaji-three-module-e2e-validation.md)、[计划](../superpowers/plans/2026-09-25-xiaji-three-module-e2e.md)和[架构切片](../architecture/2026-09-25-xiaji-three-module-validation.md)。
 - 当前范围变更（2026-09-25）：导航中的“虾塘”入口更名为“无限虾”；虾面页面、Freezone 路由、专用素材库及回主线实现已删除，旧内部记录仍会从用户素材列表隐藏。聚焦测试 4 项通过；应用源码类型检查通过（排除测试和旧 `.next` 类型），标准检查仍受旧 Freezone 路由生成引用阻塞。本次未构建、重启或做浏览器验收；当前 3000 页面可能继续显示旧构建。旧四模块规格/计划已标注为历史。
 - 本地模型预设：已将默认本地渠道强制收敛为 AutoDL `minimax_h3_image_audio_to_video_v2_15s`，默认 15 秒/768p/竖屏；API Key 保留为空，由用户最后填写；旧渠道和其他模型仅清理配置记录，不影响画布资产。

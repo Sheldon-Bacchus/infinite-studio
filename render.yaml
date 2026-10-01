@@ -2,6 +2,7 @@ services:
   - type: web
     name: infinite-canvas
     runtime: docker
+    rootDir: studio
     plan: free
     autoDeployTrigger: off
     healthCheckPath: /api/health

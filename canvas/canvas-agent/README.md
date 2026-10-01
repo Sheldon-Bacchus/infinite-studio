@@ -25,7 +25,7 @@ codex plugin add canvas-agent@infinite-canvas
 
 安装后新建 Codex 对话，说“帮我打开并连接到 Infinite Canvas”。插件优先使用当前对话提供的画布地址或原画布标签；无法确定站点时再询问地址。
 
-插件市场定义在仓库根目录的 `.agents/plugins/marketplace.json`，指向仓库内的 `canvas-agent` 插件目录。市场名 `infinite-canvas` 仅为安装标识；插件由 GitHub 获取，MCP 和连接 Skill 通过 npx 使用 npm 上的服务，无需进入插件缓存安装依赖。
+插件市场定义在 Canvas 项目根目录的 `.agents/plugins/marketplace.json`，指向该项目内的 `canvas-agent` 插件目录。市场名 `infinite-canvas` 仅为安装标识；插件由 GitHub 获取，MCP 和连接 Skill 通过 npx 使用 npm 上的服务，无需进入插件缓存安装依赖。
 
 插件会启动服务、自动带入连接信息，并通过 MCP 确认目标画布。已有画布优先复用原浏览器标签；标签不可控时使用 `npx -y @tigerowo/canvas-agent@latest open "<画布URL>" <浏览器> [浏览器参数...]`。浏览器支持 `chrome`、`edge`、`firefox`、`brave` 和 `default`，保持原浏览器及配置；画布地址沿用实际的 `/canvas/[id]` 路由。浏览器的本地网络权限提示由用户允许。
 

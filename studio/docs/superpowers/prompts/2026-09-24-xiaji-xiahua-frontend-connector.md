@@ -1,6 +1,6 @@
 # 虾塘前端复用与虾画连接器实施提示词
 
-请在本仓库根目录按照以下规格和计划实施。开始前先读取：
+请在 Studio 项目根目录 `studio/` 按照以下规格和计划实施。开始前先读取：
 
 - `docs/superpowers/specs/2026-09-24-xiaji-xiahua-frontend-connector.md`
 - `docs/superpowers/plans/2026-09-24-xiaji-xiahua-frontend-connector.md`

@@ -54,7 +54,8 @@ jobs:
       - id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./studio
+          file: ./studio/Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ needs.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true

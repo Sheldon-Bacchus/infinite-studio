@@ -4,15 +4,14 @@
 
 ## 当前用户指令
 
-当前整合任务（Codex 对话 ID：`01a0f50d-8443-7603-93e0-93683f108149`）明确指定公开 GitHub 仓库 `Sheldon-Bacchus/infinite-studio`，并要求把下列资料集中上传、整理状态：
+当前整合任务（Codex 对话 ID：`01a0f50d-8443-7603-93e0-93683f108149`）指定公开 GitHub 仓库 `Sheldon-Bacchus/infinite-studio`，并明确仓库只保留无限片场与无限画布两个项目目录；MCP 和插件必须放在所属项目内。需要集中上传、整理状态的资料包括：
 
 - 无限画布素材组相关讨论与 Markdown 文档。
 - 已有编译产物、MCP 源码与本地存储实现。
 - 无限虾/虾料、虾塘、虾镜相关代码和路线资料。
 - 把有历史验证记录的内容与仍在开发或待验收的内容分开。
-- 上传之后清除重复的本地项目副本。
 
-“JF 文件夹”是用户随后明确撤回的误发，不属于当前交付范围。此前交接文件里“两项目必须分开维护”的描述属于更早的状态；本次当前指令要求单一 GitHub 仓库，故以当前指令为准。仓库内仍按来源保留独立实现目录与许可证。
+“JF 文件夹”是用户随后明确撤回的误发，不属于当前交付范围。旧交接里的“两项目必须分开维护”以及把 MCP 作为第三个目录的旧方案均已被更新。仓库现按两个项目目录组织：Studio 插件位于 `studio/canvas-agent/`，Canvas 社区 MCP 位于 `canvas/mcp/`；各来源代码和许可证保留在所属目录。
 
 ## 相关历史对话
 
@@ -29,8 +28,8 @@
 ### 仓库中有实现或历史记录
 
 - Infinite Canvas 源码快照记录了素材组接入生成节点、H3 时长设置、localForage 存储和导演台静态目录。
-- Infinite Studio 根目录保留虾料、虾塘、虾镜、本地工作区、画布 Agent 和集成工作流。
-- 社区 MCP 以独立 MIT 来源快照收录。
+- `studio/` 保留无限虾（虾料、虾塘、虾镜）、本地工作区、画布 Agent 和集成工作流。
+- `canvas/` 保存 Infinite Canvas；社区 MCP 收在 `canvas/mcp/`，不作为第三个项目。
 - [`../progress/pending-test.md`](../progress/pending-test.md) 有此前的定向测试、构建和部分浏览器观察记录，也明确列出了当时未验证的范围。
 
 ### 本次未重新验证
@@ -39,7 +38,7 @@
 
 ## 文件索引
 
-- 仓库与来源映射：[`../../IMPLEMENTATIONS.md`](../../IMPLEMENTATIONS.md)
-- 无限画布交接和路线文档：[`../../implementations/infinite-canvas/docs/`](../../implementations/infinite-canvas/docs/)
-- MCP 文档：[`../../implementations/infinite-canvas-mcp/`](../../implementations/infinite-canvas-mcp/)
+- 仓库与来源映射：[`../../../IMPLEMENTATIONS.md`](../../../IMPLEMENTATIONS.md)
+- 无限画布交接和路线文档：[`../../../canvas/docs/`](../../../canvas/docs/)
+- MCP 文档与源码：[`../../../canvas/mcp/`](../../../canvas/mcp/)
 - 无限虾路线、规格和实现状态：[`../index.md`](../index.md)、[`../progress/todo.md`](../progress/todo.md)、[`../progress/pending-test.md`](../progress/pending-test.md)
