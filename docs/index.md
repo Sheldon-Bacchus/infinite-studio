@@ -4,6 +4,7 @@
 
 - [实现与来源清单](../IMPLEMENTATIONS.md)
 - [项目整合与对话纪要](conversations/project-consolidation.md)
+- [无限画布素材组对话纪要](conversations/canvas-asset-groups.md)
 - [历史验证与待验收状态](progress/pending-test.md)
 
 ## 项目介绍
