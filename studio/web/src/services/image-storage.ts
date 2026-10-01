@@ -62,6 +62,7 @@ async function storeImage(blob: Blob, options?: ImageReadOptions): Promise<Uploa
         throwIfAborted(options?.signal);
         if (isLocalWorkspaceMode) {
             const file = await uploadLocalWorkspaceFile(blob, `image.${blob.type.split("/")[1] || "bin"}`, options?.fileId);
+            URL.revokeObjectURL(url);
             return { url: file.url || fileContentUrl(file.fileId), storageKey: file.storageKey, fileId: file.fileId, width: meta.width, height: meta.height, bytes: file.bytes, mimeType: file.mimeType };
         }
         await store.setItem(storageKey, blob);

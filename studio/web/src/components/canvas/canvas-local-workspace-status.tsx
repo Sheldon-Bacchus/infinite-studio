@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { isLocalWorkspaceMode } from "@/services/api/local-workspace";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -10,18 +8,6 @@ export function CanvasLocalWorkspaceStatus({ recordId, recordType = "canvas" }: 
     const workspace = useLocalWorkspaceStore((state) => state.workspace);
     const saves = useLocalWorkspaceStore((state) => state.saves);
     const save = recordId ? saves[`${recordType}:${recordId}`] : Object.values(saves).find((item) => item.phase === "error" || item.phase === "conflict" || item.phase === "saving" || item.phase === "dirty");
-
-    useEffect(() => {
-        if (!isLocalWorkspaceMode) return;
-        const hasDraft = Object.values(saves).some((item) => item.phase === "dirty" || item.phase === "saving" || item.phase === "error" || item.phase === "conflict");
-        if (!hasDraft) return;
-        const warn = (event: BeforeUnloadEvent) => {
-            event.preventDefault();
-            event.returnValue = "";
-        };
-        window.addEventListener("beforeunload", warn);
-        return () => window.removeEventListener("beforeunload", warn);
-    }, [saves]);
 
     if (!isLocalWorkspaceMode) return null;
 

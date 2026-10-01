@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 
 import { useConfigStore } from "@/stores/use-config-store";
 import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
+import { isLocalWorkspaceMode } from "@/services/api/local-workspace";
+import { useLocalWorkspaceStore } from "@/stores/use-local-workspace-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message } = App.useApp();
@@ -12,8 +14,19 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const handledConfigParams = useRef(false);
     const importChannelCredentials = useConfigStore((state) => state.importChannelCredentials);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const hasUnsavedWorkspaceChanges = useLocalWorkspaceStore((state) => Object.values(state.saves).some(({ phase }) => phase === "dirty" || phase === "saving" || phase === "error" || phase === "conflict"));
 
     usePromptSourceScheduler();
+
+    useEffect(() => {
+        if (!isLocalWorkspaceMode || !hasUnsavedWorkspaceChanges) return;
+        const warn = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = "";
+        };
+        window.addEventListener("beforeunload", warn);
+        return () => window.removeEventListener("beforeunload", warn);
+    }, [hasUnsavedWorkspaceChanges]);
 
     useEffect(() => {
         if (handledConfigParams.current) return;

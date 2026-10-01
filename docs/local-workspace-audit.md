@@ -6,8 +6,8 @@
 
 | 项目 | 已核实结果 | 执行约束 |
 | --- | --- | --- |
-| 仓库 | `E:/all-agent-workspace/infinite-studio`，HEAD `7b42105a36b6e1133edb76cfe80e4fd648c76432` | 留在当前 checkout；不 reset、clean、切换 worktree 或提交 |
-| Git 状态 | 约 2994 项既有变更，包括 `studio/` 删除、Vite 新文件及大量未跟踪文件 | 全部视为用户状态；只精确编辑本任务文件，不使用 `git add .` |
+| 仓库 | `E:/all-agent-workspace/infinite-studio`，本轮复核基线 `e63038e` | 留在当前 checkout；不 reset、clean 或切换 worktree |
+| Git 状态 | 工作区保留大量既有 `studio/` 移动/删除及未跟踪文件；本轮复核时暂存区为空 | 不覆盖或提交这些全仓变更；只精确处理本任务文件，不使用 `git add .` |
 | `43862` | 最近只读端口检查无监听；旧 Next 页面源码仍在恢复目录 | 不启动、不替换、不运行 `start-studio.ps1` |
 | `8086` | 最近只读端口检查无监听 | 不启动服务；本地数据缺少 manifest，服务按设计拒绝打开 |
 | `43863` | 最近只读端口检查无监听 | 新 Vite 模式配置严格使用该端口，不自动漂移 |
