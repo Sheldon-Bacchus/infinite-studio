@@ -1,113 +1,19 @@
-"use client";
-
 import type { ReactNode } from "react";
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { App } from "antd";
+import { useTranslation } from "react-i18next";
 
-import { fetchUserConfig } from "@/services/api/user-config";
-import { replaceWorkflowChannels } from "@/services/workflow-channel-storage";
-import { STORAGE_SYNC_FAILED_EVENT, defaultUserStorageProvider, defaultUserWebDAVStorageProvider, saveUserStorageProvider, saveUserWebDAVStorageProvider } from "@/services/image-storage";
-import { defaultConfig, useConfigStore, type AiConfig } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message } = App.useApp();
+    const { t } = useTranslation();
     const handledConfigParams = useRef(false);
-    const pathname = usePathname();
-    const token = useUserStore((state) => state.token);
-    const user = useUserStore((state) => state.user);
-    const hydrateUser = useUserStore((state) => state.hydrateUser);
-    const loadPublicSettings = useConfigStore((state) => state.loadPublicSettings);
-    const publicSettings = useConfigStore((state) => state.publicSettings);
-    const channelMode = useConfigStore((state) => state.config.channelMode);
-    const updateConfig = useConfigStore((state) => state.updateConfig);
+    const importChannelCredentials = useConfigStore((state) => state.importChannelCredentials);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const isLoginPage = pathname === "/login" || pathname === "/admin/login";
-    const adminRemoteTokenRef = useRef("");
-    const accountSessionRef = useRef({ token, userId: user?.id || "" });
 
-    useEffect(() => {
-        const onSyncFailed = (event: Event) => {
-            const detail = (event as CustomEvent<string>).detail;
-            message.warning({ key: STORAGE_SYNC_FAILED_EVENT, content: `云端同步失败，已保留原始素材${detail ? `：${detail}` : ""}` });
-        };
-        window.addEventListener(STORAGE_SYNC_FAILED_EVENT, onSyncFailed);
-        return () => window.removeEventListener(STORAGE_SYNC_FAILED_EVENT, onSyncFailed);
-    }, [message]);
-
-    useEffect(() => {
-        void loadPublicSettings();
-    }, [loadPublicSettings]);
-
-    useEffect(() => {
-        if (!isLoginPage) void hydrateUser();
-    }, [hydrateUser, isLoginPage]);
-
-	useEffect(() => {
-		if (!token || user?.role !== "admin" || adminRemoteTokenRef.current === token) return;
-		adminRemoteTokenRef.current = token;
-		if (channelMode !== "remote") updateConfig("channelMode", "remote");
-	}, [channelMode, token, updateConfig, user?.role]);
-
-	useLayoutEffect(() => {
-		const previous = accountSessionRef.current;
-		const userId = user?.id || "";
-		if ((previous.token && !token) || (previous.userId && userId && previous.userId !== userId)) {
-			useConfigStore.setState({ config: defaultConfig });
-		} else {
-			updateConfig("workflowSyncTouched", false);
-		}
-		accountSessionRef.current = { token, userId };
-	}, [token, updateConfig, user?.id]);
-
-	useEffect(() => {
-        if (!token || !user?.id) return;
-        const accountToken = token;
-        const accountId = user.id;
-        let canceled = false;
-		void fetchUserConfig(accountToken)
-			.then(async (payload) => {
-				if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
-				let workflowsReady = true;
-				const syncS3 = payload.modelConfig?.syncStorageConfig === true;
-                const syncWebDAV = payload.modelConfig?.syncWebDAVStorageConfig === true;
-                if (payload.modelConfig) {
-                    const { workflowChannels, ...modelConfig } = payload.modelConfig;
-					if (workflowChannels !== undefined) {
-						try {
-							await replaceWorkflowChannels(accountId, workflowChannels);
-						} catch {
-							workflowsReady = false;
-						}
-					}
-                    if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
-					Object.entries(modelConfig)
-						.forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
-				}
-				updateConfig("workflowSyncTouched", workflowsReady);
-				updateConfig("syncStorageConfig", syncS3);
-                updateConfig("syncWebDAVStorageConfig", syncWebDAV);
-                if (syncS3 && payload.storageProvider?.s3) {
-                    saveUserStorageProvider({
-                        ...defaultUserStorageProvider(),
-                        ...payload.storageProvider.s3,
-                        type: "s3",
-                    });
-                }
-                if (syncWebDAV && payload.storageProvider?.webdav) {
-                    saveUserWebDAVStorageProvider({
-                        ...defaultUserWebDAVStorageProvider(),
-                        ...payload.storageProvider.webdav,
-                        type: "webdav",
-                    });
-                }
-            })
-            .catch(() => {});
-        return () => {
-            canceled = true;
-        };
-    }, [token, updateConfig, user?.id]);
+    usePromptSourceScheduler();
 
     useEffect(() => {
         if (handledConfigParams.current) return;
@@ -115,23 +21,19 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         const baseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
         const apiKey = searchParams.get("apiKey") || searchParams.get("apikey");
         if (!baseUrl && !apiKey) return;
-        if (!publicSettings) return;
         handledConfigParams.current = true;
         searchParams.delete("baseUrl");
         searchParams.delete("baseurl");
         searchParams.delete("apiKey");
         searchParams.delete("apikey");
         window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
-        if (!publicSettings.modelChannel.allowCustomChannel) {
-            openConfigDialog(false);
-            message.error("后台未允许用户自定义渠道，请联系管理员进行配置");
-            return;
-        }
-        updateConfig("channelMode", "local");
-        if (baseUrl) updateConfig("baseUrl", baseUrl);
-        if (apiKey) updateConfig("apiKey", apiKey);
-        openConfigDialog(false);
-    }, [message, openConfigDialog, publicSettings, updateConfig]);
+        const result = importChannelCredentials({ baseUrl, apiKey });
+        openConfigDialog(false, "channels");
+        if (result.status === "created") message.success(t("config.importedChannelCreated", { name: result.channelName }));
+        else if (result.status === "updated") message.success(t("config.importedChannelUpdated", { name: result.channelName }));
+        else if (result.status === "missing-base-url") message.error(t("config.importedChannelBaseUrlRequired"));
+        else message.error(t("config.importedChannelBaseUrlInvalid"));
+    }, [importChannelCredentials, message, openConfigDialog, t]);
 
     return <>{children}</>;
 }

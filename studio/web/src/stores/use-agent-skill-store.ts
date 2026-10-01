@@ -1,101 +1,122 @@
-"use client";
-
-import localforage from "localforage";
-import { nanoid } from "nanoid";
 import { create } from "zustand";
+import i18n from "@/i18n";
 
-import { AGENT_SKILL_CONTENT_MAX_LENGTH, deleteUserAgentSkill, fetchSystemAgentSkills, fetchUserAgentSkills, saveUserAgentSkill, type AgentSkill } from "@/services/api/agent-skills";
-import { deleteStoredImages } from "@/services/image-storage";
-import { useUserStore } from "@/stores/use-user-store";
+import { fetchCodexSkills, type AgentSkillDraft, type AgentSkillSummary } from "@/services/api/canvas-agent";
+import { useAgentStore } from "@/stores/use-agent-store";
+
+let loadSequence = 0;
 
 type AgentSkillStore = {
-    systemSkills: AgentSkill[];
-    userSkills: AgentSkill[];
-    isLoading: boolean;
-    loadSkills: () => Promise<void>;
-    importSkill: (file: File) => Promise<AgentSkill>;
-    updateSkill: (id: string, patch: Pick<AgentSkill, "name" | "description" | "coverUrl" | "coverStorageKey" | "content">) => Promise<AgentSkill>;
-    deleteSkill: (id: string) => Promise<void>;
+    skills: AgentSkillSummary[];
+    selectedSkill: AgentSkillSummary | null;
+    selectionRevision: number;
+    connectionRevision: number;
+    autoPrompt: string;
+    draft: AgentSkillDraft | null;
+    generatingSource: "conversation" | "canvas" | null;
+    loading: boolean;
+    loaded: boolean;
+    errors: string[];
+    loadSkills: (endpoint: string, token: string, forceReload?: boolean) => Promise<void>;
+    selectSkill: (skill: AgentSkillSummary | null, prompt?: string) => void;
+    clearSelection: (expectedRevision?: number) => void;
+    setDraft: (draft: AgentSkillDraft | null) => void;
+    setGeneratingSource: (source: "conversation" | "canvas" | null) => void;
+    reset: () => void;
 };
 
-const localSkillStore = localforage.createInstance({ name: "infinite-canvas", storeName: "agent_skills" });
-const localSkillKey = "items";
-let loadedSkillsKey = "";
-let loadSkillsPromise: Promise<void> | null = null;
-
-export function invalidateAgentSkillCache() {
-    loadedSkillsKey = "";
-}
-
 export const useAgentSkillStore = create<AgentSkillStore>((set, get) => ({
-    systemSkills: [],
-    userSkills: [],
-    isLoading: false,
-    loadSkills: async () => {
-        const token = useUserStore.getState().token;
-        const key = token || "local";
-        if (loadedSkillsKey === key) return;
-        if (loadSkillsPromise) await loadSkillsPromise;
-        if (loadedSkillsKey === key) return;
-        set({ isLoading: true });
-        loadSkillsPromise = Promise.all([
-            fetchSystemAgentSkills(),
-            token ? fetchUserAgentSkills(token) : loadLocalAgentSkills(),
-        ]).then(([systemSkills, userSkills]) => {
-            loadedSkillsKey = key;
-            set({ systemSkills, userSkills });
-        }).finally(() => {
-            loadSkillsPromise = null;
-            set({ isLoading: false });
-        });
-        return loadSkillsPromise;
+    skills: [],
+    selectedSkill: null,
+    selectionRevision: 0,
+    connectionRevision: 0,
+    autoPrompt: "",
+    draft: null,
+    generatingSource: null,
+    loading: false,
+    loaded: false,
+    errors: [],
+    loadSkills: async (endpoint, token, forceReload = false) => {
+        const sequence = ++loadSequence;
+        set({ loading: true });
+        try {
+            const response = await fetchCodexSkills(endpoint, token, forceReload);
+            if (sequence !== loadSequence) return;
+            const skills = response.data || [];
+            const current = get();
+            const selected = current.selectedSkill;
+            const selectedSkill = selected ? skills.find((item) => item.name === selected.name && item.path === selected.path && item.enabled) || null : null;
+            const selectionChanged = Boolean(selected && !selectedSkill);
+            if (selectionChanged) clearSelectedSkillPrompt(current);
+            const autoPrompt = selectedSkill
+                ? replaceAutoPrompt(current.autoPrompt, selectedSkill.interface?.defaultPrompt?.trim() || `$${selectedSkill.name}`, false)
+                : "";
+            set({ skills, selectedSkill, autoPrompt, selectionRevision: current.selectionRevision + (selectionChanged ? 1 : 0), loading: false, loaded: true, errors: (response.errors || []).map(skillErrorText) });
+        } catch (error) {
+            if (sequence !== loadSequence) return;
+            set({ loading: false, loaded: true, errors: [error instanceof Error ? error.message : i18n.t("agent.state.skillReadFailed")] });
+        }
     },
-    importSkill: async (file) => {
-        const content = (await file.text()).trim();
-        if (!content) throw new Error("Skill 内容不能为空");
-        if (Array.from(content).length > AGENT_SKILL_CONTENT_MAX_LENGTH) throw new Error("Skill 内容不能超过 20000 字");
-        const name = file.name.replace(/\.(?:md|markdown|txt)$/i, "").trim() || "未命名 Skill";
-        const token = useUserStore.getState().token;
-        const now = new Date().toISOString();
-        const skill = token
-            ? await saveUserAgentSkill(token, { name, content })
-            : { id: `local-skill-${nanoid()}`, ownerUserId: "", source: "user" as const, name, description: "", coverUrl: "", coverStorageKey: "", content, enabled: true, sort: 0, createdAt: now, updatedAt: now };
-        const userSkills = [skill, ...get().userSkills.filter((item) => item.id !== skill.id)];
-        if (!token) await localSkillStore.setItem(localSkillKey, userSkills);
-        set({ userSkills });
-        return skill;
+    selectSkill: (selectedSkill, prompt) => {
+        const current = get();
+        const agent = useAgentStore.getState();
+        const marker = selectedSkill ? `$${selectedSkill.name}` : "";
+        const previousMarker = current.selectedSkill ? `$${current.selectedSkill.name}` : "";
+        let nextPrompt = prompt;
+        let autoPrompt = "";
+        if (nextPrompt === undefined && selectedSkill) {
+            const defaultPrompt = selectedSkill.interface?.defaultPrompt?.trim() || marker;
+            if (!agent.prompt.trim() || Boolean(current.autoPrompt && agent.prompt === current.autoPrompt)) {
+                nextPrompt = defaultPrompt;
+                autoPrompt = defaultPrompt;
+            } else if (previousMarker && agent.prompt.includes(previousMarker)) {
+                nextPrompt = agent.prompt.replace(previousMarker, marker);
+            } else {
+                nextPrompt = agent.prompt.includes(marker) ? agent.prompt : `${agent.prompt}${/\s$/.test(agent.prompt) ? "" : " "}${marker}`;
+            }
+        }
+        if (nextPrompt !== undefined && agent.prompt !== nextPrompt) agent.setAgentState({ prompt: nextPrompt });
+        set({ selectedSkill, autoPrompt, selectionRevision: current.selectionRevision + 1 });
     },
-    updateSkill: async (id, patch) => {
-        const existing = get().userSkills.find((item) => item.id === id);
-        if (!existing) throw new Error("Skill 不存在");
-        const name = patch.name.trim();
-        const content = patch.content.trim();
-        if (!name) throw new Error("请输入 Skill 名称");
-        if (!content) throw new Error("请输入 Skill 内容");
-        if (Array.from(content).length > AGENT_SKILL_CONTENT_MAX_LENGTH) throw new Error("Skill 内容不能超过 20000 字");
-        const token = useUserStore.getState().token;
-        const next = { ...existing, ...patch, name, description: patch.description.trim(), coverUrl: patch.coverUrl.trim(), coverStorageKey: patch.coverStorageKey.trim(), content };
-        const skill = token
-            ? await saveUserAgentSkill(token, next)
-            : { ...next, updatedAt: new Date().toISOString() };
-        const userSkills = get().userSkills.map((item) => item.id === id ? skill : item);
-        if (!token) await localSkillStore.setItem(localSkillKey, userSkills);
-        set({ userSkills });
-        if (existing.coverStorageKey && existing.coverStorageKey !== skill.coverStorageKey) await deleteStoredImages([existing.coverStorageKey]).catch(() => undefined);
-        return skill;
+    clearSelection: (expectedRevision) => {
+        const current = get();
+        if (expectedRevision !== undefined && expectedRevision !== current.selectionRevision) return;
+        clearSelectedSkillPrompt(current);
+        set({ selectedSkill: null, autoPrompt: "", selectionRevision: current.selectionRevision + 1 });
     },
-    deleteSkill: async (id) => {
-        const token = useUserStore.getState().token;
-        if (token) await deleteUserAgentSkill(token, id);
-        const coverStorageKey = get().userSkills.find((item) => item.id === id)?.coverStorageKey;
-        const userSkills = get().userSkills.filter((item) => item.id !== id);
-        if (!token) await localSkillStore.setItem(localSkillKey, userSkills);
-        set({ userSkills });
-        if (coverStorageKey) await deleteStoredImages([coverStorageKey]).catch(() => undefined);
+    setDraft: (draft) => set({ draft }),
+    setGeneratingSource: (generatingSource) => set({ generatingSource }),
+    reset: () => {
+        loadSequence += 1;
+        const current = get();
+        clearSelectedSkillPrompt(current);
+        set({ skills: [], selectedSkill: null, selectionRevision: current.selectionRevision + 1, connectionRevision: current.connectionRevision + 1, autoPrompt: "", draft: null, generatingSource: null, loading: false, loaded: false, errors: [] });
     },
 }));
 
-export async function loadLocalAgentSkills() {
-    const items = await localSkillStore.getItem<AgentSkill[]>(localSkillKey);
-    return Array.isArray(items) ? items : [];
+function replaceAutoPrompt(previous: string, next: string, fillEmpty: boolean) {
+    const agent = useAgentStore.getState();
+    const ownsPrompt = Boolean(previous && agent.prompt === previous);
+    if (!ownsPrompt && !(fillEmpty && !agent.prompt.trim())) return "";
+    if (agent.prompt !== next) agent.setAgentState({ prompt: next });
+    return next;
+}
+
+function clearSelectedSkillPrompt(selection: Pick<AgentSkillStore, "selectedSkill" | "autoPrompt">) {
+    const agent = useAgentStore.getState();
+    if (selection.autoPrompt && agent.prompt === selection.autoPrompt) {
+        agent.setAgentState({ prompt: "" });
+        return;
+    }
+    if (!selection.selectedSkill) return;
+    const marker = `$${selection.selectedSkill.name}`;
+    if (agent.prompt.includes(marker)) agent.setAgentState({ prompt: agent.prompt.replace(marker, "") });
+}
+
+function skillErrorText(value: unknown) {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object") return i18n.t("agent.state.skillParseFailed");
+    const item = value as { path?: unknown; error?: unknown; message?: unknown };
+    const message = typeof item.error === "string" ? item.error : typeof item.message === "string" ? item.message : i18n.t("agent.state.skillParseFailed");
+    return typeof item.path === "string" ? `${item.path}：${message}` : message;
 }

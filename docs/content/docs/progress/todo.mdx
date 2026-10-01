@@ -1,0 +1,15 @@
+---
+title: TODO
+description: Planned follow-up work
+---
+
+# TODO
+
+- 将恢复的 Next 片场工作台适配到当前 Vite/React Router 基底，接入已有本地项目/资产/文件 API；恢复入口 43862 与实验入口 43863 当前独立，未验收前不宣称完成统一。
+
+- 无限片场固定本地工作区：已完成本地 Go 服务、固定启动入口、逐画布/素材 CAS、媒体 fileId、ZIP v3 显式导入和 Agent/MCP 操作回执初版；见[设计规格与执行状态](../../../local-workspace-plan.md)、[执行计划](../../../superpowers/plans/local-workspace-implementation.md)和[代码复用审计](../../../local-workspace-audit.md)。待完成构建/服务/浏览器验收、导入失败恢复核验、跨浏览器和重启验收、备份恢复核验。现有数据目录缺少 manifest，未启动服务或迁移数据；暂不移植私人无限画布或无限虾。
+
+- Replace the Claude Code CLI adapter with a Claude Agent SDK adapter and improve the tool queue, following the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan).
+- Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.
+
+- Infinite Xia plugin: project/script/beat workflow and refresh persistence verified. Media upload, artifact review and AI integration still need browser verification. Archived legacy interfaces and services are not yet ported.

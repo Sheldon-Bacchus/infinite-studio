@@ -1,3 +1,5 @@
+> 当前基线为 basketikun/infinite-canvas v0.19.0；下文仅为旧整合历史。无限虾位于 studio/plugins/canvas/infinite-xia。
+
 # Infinite 项目清单（历史记录）
 
 > 当前仓库仅保留 studio/。下文为此前整合来源记录，其中 canvas/ 及其 MCP 已移除，相关路径不再有效。独立私人画布仓库未修改。
@@ -47,3 +49,4 @@ GitHub 目标仓库：[`Sheldon-Bacchus/infinite-studio`](https://github.com/She
 - `.env.example` 仅是模板；API Key 与 Agent Token 不应写入 Git。
 - `studio/` 与 `canvas/` 各自保留入口和运行说明；根目录 README 仅用于导航。
 - 项目文档与交接历史中的旧仓库拆分说明是历史状态；当前单仓库决策以用户本轮明确指令为准。
+
