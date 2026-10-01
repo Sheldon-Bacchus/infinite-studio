@@ -6,6 +6,7 @@ import { Button, Input } from "antd";
 
 import { useCanvasStore, type CanvasProject } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
+import { openExistingCanvasProject } from "../utils/canvas-project-navigation";
 import { exportCanvasProjects } from "../utils/canvas-export";
 
 export function CanvasProjectCard({ project }: { project: CanvasProject }) {
@@ -21,7 +22,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
-    const open = () => router.push(`/canvas/${project.id}`);
+    const open = () => openExistingCanvasProject(project.id, (path) => router.push(path));
     const saveTitle = () => {
         renameProject(project.id, editingTitle);
         stopEditing();

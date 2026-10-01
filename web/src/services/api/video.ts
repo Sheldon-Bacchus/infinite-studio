@@ -6,7 +6,7 @@ import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, gemini
 import { isGeminiVeo31Model, normalizeGeminiVideoDuration, normalizeGeminiVideoRatio, normalizeGeminiVideoResolution } from "@/lib/gemini-video";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio } from "@/lib/seedance-video";
 import { isKIEGrokVideoModel, isKIEKlingV3Config, kieKlingOmniVariant } from "./protocols/kling-models";
-import { autoDLBaseUrl, getAutoDLCapabilities } from "@/lib/autodl";
+import { autoDLBaseUrl, getAutoDLCapabilities, normalizeAutoDLDuration } from "@/lib/autodl";
 import { fetchAutoDLWorkflow } from "./autodl";
 import { isAgnesVideoV25Model, isCogVideoX3Model, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration } from "@/lib/video-model-capabilities";
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
@@ -322,18 +322,29 @@ async function create88APIVideoRequestBody(config: AiConfig, model: string, prom
 
 async function createVideoRequestBody(config: AiConfig, model: string, prompt: string, input: Required<VideoReferenceInput>) {
     if (videoChannelProtocol(config, model) === "autodl") {
-        const capabilities = getAutoDLCapabilities(await fetchAutoDLWorkflow(autoDLBaseUrl(config, model), model));
+        const workflow = await fetchAutoDLWorkflow(autoDLBaseUrl(config, model), model);
+        const capabilities = getAutoDLCapabilities(workflow);
         if (!capabilities) throw new VideoRequestError("当前 AutoDL 工作流尚未适配");
+        const unsupportedReferences = [
+            ["图片", input.references.length, capabilities.imageMax],
+            ["视频", input.videoReferences.length, capabilities.videoMax],
+            ["音频", input.audioReferences.length, capabilities.audioMax],
+        ] as const;
+        for (const [kind, actual, maximum] of unsupportedReferences) {
+            if (actual > maximum) throw new VideoRequestError(`当前 AutoDL 工作流的${kind}输入槽最多支持 ${maximum} 个，配置里选了 ${actual} 个；请调整组内素材或工作流输入槽`);
+        }
+        if (input.firstFrame && !capabilities.firstFrame) throw new VideoRequestError("当前 AutoDL 工作流没有首帧输入槽");
+        if (input.lastFrame && !capabilities.lastFrame) throw new VideoRequestError("当前 AutoDL 工作流没有尾帧输入槽");
         const { autoDLReferenceURL } = await import("./direct-ai");
         const [images, videos, audios, firstFrame, lastFrame] = await Promise.all([
-            Promise.all((capabilities.imageMax ? input.references : []).map(autoDLReferenceURL)),
-            Promise.all((capabilities.videoMax ? input.videoReferences : []).map(autoDLReferenceURL)),
-            Promise.all((capabilities.audioMax ? input.audioReferences : []).map(autoDLReferenceURL)),
-            capabilities.firstFrame && input.firstFrame ? autoDLReferenceURL(input.firstFrame) : Promise.resolve(""),
-            capabilities.lastFrame && input.lastFrame ? autoDLReferenceURL(input.lastFrame) : Promise.resolve(""),
+            Promise.all(input.references.map((reference) => autoDLReferenceURL(reference, workflow.uuid, "image"))),
+            Promise.all(input.videoReferences.map((reference) => autoDLReferenceURL(reference, workflow.uuid, "video"))),
+            Promise.all(input.audioReferences.map((reference) => autoDLReferenceURL(reference, workflow.uuid, "audio"))),
+            capabilities.firstFrame && input.firstFrame ? autoDLReferenceURL(input.firstFrame, workflow.uuid, "image") : Promise.resolve(""),
+            capabilities.lastFrame && input.lastFrame ? autoDLReferenceURL(input.lastFrame, workflow.uuid, "image") : Promise.resolve(""),
         ]);
         return {
-            model, prompt, seconds: config.videoSeconds, size: config.size, resolution_name: config.vquality,
+            model, prompt, seconds: capabilities.duration ? normalizeAutoDLDuration(config.videoSeconds, workflow) : config.videoSeconds, size: config.size, resolution_name: config.vquality,
             "input_reference[]": images, "video_reference[]": videos, "audio_reference[]": audios,
             ...(firstFrame ? { first_frame_url: firstFrame } : {}),
             ...(lastFrame ? { last_frame_url: lastFrame } : {}),

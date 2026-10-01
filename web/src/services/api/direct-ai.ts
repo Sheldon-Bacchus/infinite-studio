@@ -1,4 +1,5 @@
 import { readFileAsDataUrl } from "@/lib/image-utils";
+import { fetchMediaAsDataUrl, supportsAutoDLBase64Reference, type AutoDLReferenceKind } from "./autodl-reference";
 import { apiPost } from "@/services/api/request";
 import { resolveMediaUrl, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { resolveImageUrl } from "@/services/image-storage";
@@ -21,18 +22,21 @@ type SerializedDirectBody = { body: unknown; references: DirectReference[] };
 const DIRECT_REFERENCE_HOST = "direct-reference.invalid";
 const DIRECT_IMAGE_POLL_INTERVAL_MS = 2000;
 
-export async function autoDLReferenceURL(reference: ReferenceImage | ReferenceVideo | ReferenceAudio) {
+export async function autoDLReferenceURL(reference: ReferenceImage | ReferenceVideo | ReferenceAudio, workflowId = "", kind: AutoDLReferenceKind = "image") {
+    const inlineLocalReference = supportsAutoDLBase64Reference(workflowId, "/videos", kind);
     for (const value of [reference.url, "dataUrl" in reference ? reference.dataUrl : ""]) {
         const url = publicReferenceURL(value);
         if (url) return url;
+        if (inlineLocalReference && typeof value === "string" && isMediaDataURL(value)) return value;
     }
     const storedUrl = await storedReferenceURL(reference.storageKey);
     if (storedUrl) return storedUrl;
-    if (reference.storageKey?.startsWith("server:")) throw new Error("AutoDL 参考素材需要云存储提供可公开访问的地址");
+    if (reference.storageKey?.startsWith("server:") && !inlineLocalReference) throw new Error("AutoDL 参考素材需要云存储提供可公开访问的地址");
     const source = "dataUrl" in reference
         ? await resolveImageUrl(reference.storageKey, reference.dataUrl || reference.url || "")
         : await resolveMediaUrl(reference.storageKey, reference.url);
     if (!source) throw new Error("参考素材不可用");
+    if (inlineLocalReference) return fetchMediaAsDataUrl(source, reference.type);
     const uploaded = await uploadRemoteMediaToServer(source, reference.name || "reference");
     const url = publicReferenceURL(uploaded.url) || await storedReferenceURL(uploaded.storageKey);
     if (!url) throw new Error("AutoDL 参考素材需要云存储提供可公开访问的地址");
@@ -124,7 +128,7 @@ async function prepareDirectRequest(config: AiConfig, provider: DirectAIProvider
     });
     if (plan.provider !== provider) throw new Error("前后端渠道识别结果不一致");
     const protocol = directProtocolAdapters[provider];
-    const requestBody = await uploadAndReplaceReferences(protocol, plan, serialized.references, channel.apiKey);
+    const requestBody = await uploadAndReplaceReferences(protocol, plan, serialized.references, channel.apiKey, config.model || config.videoModel, endpoint);
     return { plan, requestBody, apiKey: channel.apiKey, protocol };
 }
 
@@ -249,11 +253,15 @@ function assertSafeDirectBody(value: unknown) {
     if (isPlainRecord(value)) Object.values(value).forEach(assertSafeDirectBody);
 }
 
-async function uploadAndReplaceReferences(protocol: DirectProtocolAdapter, plan: DirectRequestPlan, references: DirectReference[], apiKey: string) {
+async function uploadAndReplaceReferences(protocol: DirectProtocolAdapter, plan: DirectRequestPlan, references: DirectReference[], apiKey: string, model: string, endpoint: string) {
     const retained = references.filter((reference) => containsDirectMarker(plan.body, reference.marker));
     const uploaded = new Map<string, string>();
     await Promise.all(retained.map(async (reference) => {
         const spec = plan.uploads?.[reference.kind];
+        if (!spec && plan.provider === "autodl" && supportsAutoDLBase64Reference(model, endpoint, reference.kind)) {
+            uploaded.set(reference.marker, await readFileAsDataUrl(reference.file));
+            return;
+        }
         if (!spec && plan.provider === "ark" && reference.kind === "image") {
             uploaded.set(reference.marker, await readFileAsDataUrl(reference.file));
             return;

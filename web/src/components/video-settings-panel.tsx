@@ -5,10 +5,11 @@ import { Input, Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
-import { isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
+import { getAutoDLCapabilities, isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
 import { boolConfig, isSeedanceFastOrMiniModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { COGVIDEOX3_DURATIONS, isCogVideoX3Model, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration } from "@/lib/video-model-capabilities";
+import { isMiniMaxH3Config } from "@/lib/minimax-video";
 import { grokVideoModeOptions, isAPIMartKlingV26Config, isAPIMartKlingV3Config, isKIEGrokVideoModel, isKIEKlingV3Config, klingV26DurationOptions, klingV26ModeOptions, klingV26RatioLabels, klingV26RatioOptions, klingV3DurationOptions, klingV3ModeOptions, normalizeKlingV26Duration, normalizeKlingV26Ratio, normalizeKlingV3Duration } from "@/services/api/protocols/kling-models";
 import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -58,6 +59,15 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
 
     const grokMode = config.videoMode === "fun" || config.videoMode === "spicy" ? config.videoMode : "normal";
     const cogVideoX3 = isCogVideoX3Model(model);
+    const directH3 = isMiniMaxH3Config(config, model);
+    const autodlDurationRule = autodl ? getAutoDLCapabilities(workflow)?.duration : undefined;
+    const autodlMin = autodlDurationRule?.min;
+    const autodlMax = autodlDurationRule?.max;
+    const durationRange = directH3
+        ? { min: 4, max: 15, step: 1 }
+        : autodlDurationRule && typeof autodlMin === "number" && Number.isFinite(autodlMin) && typeof autodlMax === "number" && Number.isFinite(autodlMax) && autodlMax >= autodlMin
+            ? { min: autodlMin, max: autodlMax, step: autodlDurationRule.type === "integer" ? 1 : 0.1 }
+            : undefined;
     const seconds = autodl ? config.videoSeconds ?? "" : cogVideoX3 ? normalizeCogVideoX3Duration(config.videoSeconds) : config.videoSeconds || "6";
     const size = normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
@@ -155,15 +165,27 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
                 </SettingGroup>
                 {!visualOnly ? (
                     <>
-                        <SettingGroup title="秒数" color={theme.node.muted}>
-                            <div className="grid grid-cols-3 gap-2.5">
-                                {(cogVideoX3 ? COGVIDEOX3_DURATIONS : secondOptions).map((value) => (
-                                    <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                        {value}s
-                                    </OptionPill>
-                                ))}
-                                {cogVideoX3 ? null : <NumberInput value={seconds} min={1} max={30} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} onBlur={autodl ? (value) => onConfigChange("videoSeconds", normalizeAutoDLDuration(value, workflow)) : undefined} />}
-                            </div>
+                        <SettingGroup title={durationRange ? "时长" : "秒数"} color={theme.node.muted}>
+                            {durationRange ? (
+                                <DurationSlider
+                                    value={seconds}
+                                    min={durationRange.min}
+                                    max={durationRange.max}
+                                    step={durationRange.step}
+                                    theme={theme}
+                                    hint={autodl ? `由当前 AutoDL 工作流限制：${durationRange.min}–${durationRange.max} 秒` : "H3 单次生成范围：4–15 秒"}
+                                    onChange={(value) => onConfigChange("videoSeconds", autodl ? normalizeAutoDLDuration(value, workflow) : value)}
+                                />
+                            ) : (
+                                <div className="grid grid-cols-3 gap-2.5">
+                                    {(cogVideoX3 ? COGVIDEOX3_DURATIONS : secondOptions).map((value) => (
+                                        <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                            {value}s
+                                        </OptionPill>
+                                    ))}
+                                    {cogVideoX3 ? null : <NumberInput value={seconds} min={1} max={30} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} onBlur={autodl ? (value) => onConfigChange("videoSeconds", normalizeAutoDLDuration(value, workflow)) : undefined} />}
+                                </div>
+                            )}
                         </SettingGroup>
                         {audioGenerationEnabled ? <AudioGenerationSetting checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} /> : null}
                     </>
@@ -420,6 +442,37 @@ function DimensionInput({ prefix, value, disabled, theme, onChange }: { prefix: 
 
 function NumberInput({ value, min, max, theme, onChange, onBlur }: { value: string; min: number; max: number; theme: CanvasTheme; onChange: (value: string) => void; onBlur?: (value: string) => void }) {
     return <input type="number" min={min} max={max} className="h-9 rounded-full border bg-transparent px-3 text-center text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, WebkitTextFillColor: theme.node.text }} value={value} onChange={(event) => onChange(event.target.value)} onBlur={(event) => onBlur?.(event.target.value)} onMouseDown={(event) => event.stopPropagation()} />;
+}
+
+function DurationSlider({ value, min, max, step, theme, hint, onChange }: { value: string; min: number; max: number; step: number; theme: CanvasTheme; hint: string; onChange: (value: string) => void }) {
+    const parsed = Number(value);
+    const current = Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : min;
+    const format = (seconds: number) => Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1).replace(/\.0$/, "");
+    return (
+        <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
+            <div className="flex items-center justify-between gap-3 text-sm">
+                <span style={{ color: theme.node.muted }}>{hint}</span>
+                <span className="shrink-0 text-base font-semibold">{format(current)}s</span>
+            </div>
+            <input
+                aria-label="视频时长"
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={current}
+                className="h-2 w-full cursor-pointer accent-[var(--duration-accent)]"
+                style={{ "--duration-accent": theme.node.text } as CSSProperties}
+                onChange={(event) => onChange(event.target.value)}
+                onMouseDown={(event) => event.stopPropagation()}
+            />
+            <div className="flex justify-between text-[11px] opacity-55">
+                <span>{format(min)}s</span>
+                <span>步长 {format(step)}s</span>
+                <span>{format(max)}s</span>
+            </div>
+        </div>
+    );
 }
 
 function SizePreview({ width, height, color }: { width: number; height: number; color: string }) {

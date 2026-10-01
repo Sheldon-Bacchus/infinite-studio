@@ -1,0 +1,369 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Infinite Canvas H3 生成配置与结果面板草图</title>
+  <desc id="desc">产品交互示意：连接到配置的图片和声线自动成为本次输入，按序展示；生成结果保留参考素材与提示词快照。</desc>
+  <defs>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M36 0H0V36" fill="none" stroke="#282b32" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="coverSky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#536679"/>
+      <stop offset="0.52" stop-color="#8a9a9b"/>
+      <stop offset="1" stop-color="#d8aa69"/>
+    </linearGradient>
+    <linearGradient id="coverFloor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66594d"/>
+      <stop offset="1" stop-color="#292d31"/>
+    </linearGradient>
+    <linearGradient id="thumbWarm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1b770"/>
+      <stop offset="1" stop-color="#a85342"/>
+    </linearGradient>
+    <linearGradient id="thumbCool" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#82c7c2"/>
+      <stop offset="1" stop-color="#405c72"/>
+    </linearGradient>
+    <linearGradient id="thumbRoom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6c7c7f"/>
+      <stop offset="1" stop-color="#303c40"/>
+    </linearGradient>
+    <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000" flood-opacity=".42"/>
+    </filter>
+    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif; }
+      .primary { fill:#eef1f5; }
+      .secondary { fill:#a5abb5; }
+      .muted { fill:#777f8b; }
+      .tiny { font-size:11px; }
+      .small { font-size:12px; }
+      .body { font-size:13px; }
+      .label { font-size:14px; font-weight:600; }
+      .title { font-size:19px; font-weight:650; }
+      .panel { fill:#1d2026; stroke:#373c46; stroke-width:1.2; }
+      .inner { fill:#252930; stroke:#393f4a; stroke-width:1; }
+      .card { fill:#292d34; stroke:#424853; stroke-width:1; }
+      .blue { fill:#69a7ff; }
+      .strokeBlue { stroke:#3989ff; }
+    </style>
+  </defs>
+
+  <!-- Canvas workspace -->
+  <rect width="1600" height="1000" fill="#111318"/>
+  <rect y="54" width="1600" height="946" fill="url(#grid)"/>
+  <rect width="1600" height="54" fill="#181b21"/>
+  <path d="M0 54H1600" stroke="#30343d"/>
+  <rect x="18" y="14" width="26" height="26" rx="7" fill="#337ee9"/>
+  <path d="M25 27h12M31 21v12" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+  <text x="56" y="33" class="primary" font-size="14" font-weight="650">Infinite Canvas</text>
+  <path d="M202 19v18" stroke="#3b4049"/>
+  <text x="220" y="33" class="secondary small">EP001</text>
+  <path d="M264 27l4 4 4-4" fill="none" stroke="#747c88" stroke-width="1.4"/>
+  <text x="288" y="33" class="secondary small">SHOT-05</text>
+  <rect x="1345" y="13" width="174" height="28" rx="14" fill="#20242b" stroke="#353a44"/>
+  <circle cx="1363" cy="27" r="4" fill="#69bf95"/>
+  <text x="1375" y="31" class="secondary tiny">界面草图 · 不执行任务</text>
+
+  <!-- Background graph hints -->
+  <g opacity=".42">
+    <path d="M18 462C42 462 47 447 70 447" fill="none" stroke="#537ca9" stroke-width="2"/>
+    <rect x="-38" y="398" width="112" height="103" rx="9" fill="#20242b" stroke="#46505f"/>
+    <rect x="-25" y="412" width="38" height="38" rx="5" fill="#526777"/>
+    <path d="M-19 442l10-13 8 8 7-9" fill="none" stroke="#96acb1" stroke-width="2"/>
+    <text x="20" y="424" class="muted tiny">图片素材</text>
+    <text x="20" y="442" class="secondary tiny">角色参考</text>
+    <path d="M1001 512C1013 512 1018 512 1030 512" fill="none" stroke="#3989ff" stroke-width="2.2" filter="url(#softGlow)"/>
+    <circle cx="1001" cy="512" r="4" fill="#68a8ff"/>
+    <circle cx="1030" cy="512" r="4" fill="#68a8ff"/>
+  </g>
+
+  <!-- Configuration panel -->
+  <g filter="url(#panelShadow)">
+    <rect x="68" y="74" width="936" height="856" rx="17" fill="#1b1e24" stroke="#3989ff" stroke-width="1.6"/>
+  </g>
+  <path d="M69 128H1003" stroke="#343943"/>
+  <rect x="91" y="91" width="32" height="27" rx="7" fill="#202f48"/>
+  <path d="M100 100h14v10h-14zM103 97h8" fill="none" stroke="#78b2ff" stroke-width="1.3"/>
+  <text x="137" y="102" class="primary title">SHOT-05 生成配置</text>
+  <text x="137" y="119" class="secondary tiny">EP001 · H3 多图参考</text>
+  <rect x="783" y="90" width="145" height="26" rx="13" fill="#242a34" stroke="#39414f"/>
+  <text x="855.5" y="107" text-anchor="middle" class="secondary tiny">Ref2VA · 配置预览</text>
+  <path d="M954 98l12 12M966 98l-12 12" stroke="#9aa2ad" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Generation settings -->
+  <rect x="94" y="141" width="884" height="50" rx="9" fill="#242830" stroke="#3a404b"/>
+  <rect x="105" y="150" width="328" height="32" rx="6" fill="#30353e" stroke="#4a515e"/>
+  <path d="M120 160h13v12h-13zM123 157h7" fill="none" stroke="#9da8b7" stroke-width="1.2"/>
+  <text x="143" y="171" class="primary small">H3 多图 + 音频参考</text>
+  <path d="M408 163l5 5 5-5" fill="none" stroke="#929aa6" stroke-width="1.4"/>
+  <text x="455" y="171" class="muted tiny">生成参数</text>
+  <rect x="524" y="151" width="108" height="30" rx="6" fill="#30353e"/>
+  <text x="578" y="170" text-anchor="middle" class="secondary tiny">时长 · 15 秒</text>
+  <rect x="641" y="151" width="101" height="30" rx="6" fill="#30353e"/>
+  <text x="691.5" y="170" text-anchor="middle" class="secondary tiny">画质 · 768p</text>
+  <rect x="751" y="151" width="105" height="30" rx="6" fill="#30353e"/>
+  <text x="803.5" y="170" text-anchor="middle" class="secondary tiny">画幅 · 16:9</text>
+  <circle cx="879" cy="166" r="9" fill="#293b56"/>
+  <text x="879" y="170" text-anchor="middle" fill="#8ebdff" font-size="12" font-weight="700">i</text>
+  <text x="896" y="170" class="muted tiny">示意参数</text>
+
+  <!-- Inputs heading -->
+  <text x="100" y="224" class="primary label">本次输入素材</text>
+  <rect x="800" y="205" width="176" height="26" rx="13" fill="#202b3b" stroke="#334966"/>
+  <circle cx="817" cy="218" r="4" fill="#66a7ff"/>
+  <text x="829" y="222" class="blue tiny">6 张图</text>
+  <circle cx="873" cy="218" r="3" fill="#68717e"/>
+  <text x="883" y="222" class="blue tiny">2 段音频</text>
+  <text x="100" y="247" class="secondary tiny">连入配置的素材会自动用于这次生成；拖动调整顺序，× 从本次输入移除。</text>
+
+  <!-- Reference cards row 1 -->
+  <g>
+    <rect x="100" y="262" width="284" height="78" rx="9" class="card"/>
+    <rect x="111" y="271" width="60" height="60" rx="6" fill="url(#thumbWarm)"/>
+    <circle cx="141" cy="288" r="9" fill="#f3d5af"/>
+    <path d="M128 326c1-16 6-25 13-25s12 9 13 25" fill="#313740"/>
+    <path d="M133 282c2-7 14-9 17 0" fill="none" stroke="#483329" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="122" cy="279" r="9" fill="#20242b"/>
+    <text x="122" y="283" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">1</text>
+    <text x="182" y="286" class="muted tiny">角色身份</text>
+    <text x="182" y="306" class="primary body" font-weight="600">角色 A · 外观参考</text>
+    <text x="182" y="324" class="secondary tiny">锁定脸型与服装</text>
+    <path d="M359 275v11M355 275v11M363 275v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="369" y="284" class="muted tiny">×</text>
+  </g>
+  <g>
+    <rect x="394" y="262" width="284" height="78" rx="9" class="card"/>
+    <rect x="405" y="271" width="60" height="60" rx="6" fill="url(#thumbCool)"/>
+    <circle cx="435" cy="288" r="9" fill="#efcba7"/>
+    <path d="M421 326c1-16 7-25 14-25s12 9 13 25" fill="#394752"/>
+    <path d="M426 282c4-6 15-7 18 1" fill="none" stroke="#3a3431" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="416" cy="279" r="9" fill="#20242b"/>
+    <text x="416" y="283" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">2</text>
+    <text x="476" y="286" class="muted tiny">角色身份</text>
+    <text x="476" y="306" class="primary body" font-weight="600">角色 B · 外观参考</text>
+    <text x="476" y="324" class="secondary tiny">锁定脸型与服装</text>
+    <path d="M653 275v11M649 275v11M657 275v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="663" y="284" class="muted tiny">×</text>
+  </g>
+  <g>
+    <rect x="688" y="262" width="284" height="78" rx="9" class="card"/>
+    <rect x="699" y="271" width="60" height="60" rx="6" fill="url(#thumbRoom)"/>
+    <path d="M705 300l24-18 24 18v25h-48z" fill="#3c4d4f"/>
+    <rect x="712" y="304" width="13" height="21" fill="#d2a975"/>
+    <rect x="732" y="304" width="14" height="11" fill="#28343a" stroke="#8a9993"/>
+    <circle cx="710" cy="279" r="9" fill="#20242b"/>
+    <text x="710" y="283" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">3</text>
+    <text x="770" y="286" class="muted tiny">场景</text>
+    <text x="770" y="306" class="primary body" font-weight="600">修理铺 · 环境参考</text>
+    <text x="770" y="324" class="secondary tiny">延续空间与光线</text>
+    <path d="M947 275v11M943 275v11M951 275v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="957" y="284" class="muted tiny">×</text>
+  </g>
+
+  <!-- Reference cards row 2 -->
+  <g>
+    <rect x="100" y="350" width="284" height="78" rx="9" class="card"/>
+    <rect x="111" y="359" width="60" height="60" rx="6" fill="#647e83"/>
+    <circle cx="127" cy="400" r="10" fill="none" stroke="#e2d4bb" stroke-width="3"/>
+    <circle cx="156" cy="400" r="10" fill="none" stroke="#e2d4bb" stroke-width="3"/>
+    <path d="M127 400l10-18h12l7 18M137 382l9 18M136 382h-7" fill="none" stroke="#f1d5a9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="122" cy="367" r="9" fill="#20242b"/>
+    <text x="122" y="371" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">4</text>
+    <text x="182" y="374" class="muted tiny">道具</text>
+    <text x="182" y="394" class="primary body" font-weight="600">电助力车 · 外观参考</text>
+    <text x="182" y="412" class="secondary tiny">保持主要部件一致</text>
+    <path d="M359 363v11M355 363v11M363 363v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="369" y="372" class="muted tiny">×</text>
+  </g>
+  <g>
+    <rect x="394" y="350" width="284" height="78" rx="9" class="card"/>
+    <rect x="405" y="359" width="60" height="60" rx="6" fill="#655f70"/>
+    <path d="M424 407l18-29 5 3-16 28zM439 380l-2-9 8-5 6 4-2 9" fill="#e2c28d" stroke="#f0d7aa" stroke-width="1"/>
+    <circle cx="416" cy="367" r="9" fill="#20242b"/>
+    <text x="416" y="371" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">5</text>
+    <text x="476" y="374" class="muted tiny">道具</text>
+    <text x="476" y="394" class="primary body" font-weight="600">维修工具 · 外观参考</text>
+    <text x="476" y="412" class="secondary tiny">保留工具归属</text>
+    <path d="M653 363v11M649 363v11M657 363v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="663" y="372" class="muted tiny">×</text>
+  </g>
+  <g>
+    <rect x="688" y="350" width="284" height="78" rx="9" class="card"/>
+    <rect x="699" y="359" width="60" height="60" rx="6" fill="#566678"/>
+    <rect x="707" y="367" width="44" height="43" rx="2" fill="none" stroke="#d7c69f" stroke-width="1.5"/>
+    <path d="M729 367v43M707 388h44" stroke="#d7c69f" stroke-width="1" opacity=".8"/>
+    <path d="M720 378l9-5 10 8-2 15-13 5-8-11z" fill="#d28b62"/>
+    <circle cx="710" cy="367" r="9" fill="#20242b"/>
+    <text x="710" y="371" text-anchor="middle" fill="#dceaff" font-size="10" font-weight="700">6</text>
+    <text x="770" y="374" class="muted tiny">镜头构图</text>
+    <text x="770" y="394" class="primary body" font-weight="600">SHOT-05 · 关键帧</text>
+    <text x="770" y="412" class="secondary tiny">动作与构图锚点</text>
+    <path d="M947 363v11M943 363v11M951 363v11" stroke="#798391" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="957" y="372" class="muted tiny">×</text>
+  </g>
+
+  <!-- Audio references -->
+  <text x="100" y="458" class="primary label">声线参考</text>
+  <text x="186" y="458" class="secondary tiny">角色专用音色 · 不复述参考音频内容</text>
+  <rect x="100" y="470" width="430" height="62" rx="9" class="card"/>
+  <circle cx="124" cy="501" r="12" fill="#263b55"/>
+  <path d="M120 496v10l8-5z" fill="#8fc0ff"/>
+  <text x="147" y="496" class="blue tiny">音频 1</text>
+  <text x="147" y="515" class="primary small" font-weight="600">角色 A · 声线参考</text>
+  <g stroke="#6ea5ef" stroke-width="2" stroke-linecap="round" opacity=".9">
+    <path d="M322 500v3M330 494v14M338 497v8M346 491v20M354 496v10M362 493v16M370 498v7M378 491v20M386 496v10M394 499v4M402 494v14M410 497v8"/>
+  </g>
+  <text x="480" y="505" class="secondary tiny">00:06</text>
+  <rect x="540" y="470" width="432" height="62" rx="9" class="card"/>
+  <circle cx="564" cy="501" r="12" fill="#263b55"/>
+  <path d="M560 496v10l8-5z" fill="#8fc0ff"/>
+  <text x="587" y="496" class="blue tiny">音频 2</text>
+  <text x="587" y="515" class="primary small" font-weight="600">角色 B · 声线参考</text>
+  <g stroke="#6ea5ef" stroke-width="2" stroke-linecap="round" opacity=".9">
+    <path d="M762 500v4M770 493v17M778 497v9M786 491v21M794 496v11M802 493v16M810 498v7M818 491v21M826 496v11M834 499v4M842 493v17M850 497v9"/>
+  </g>
+  <text x="921" y="505" class="secondary tiny">00:05</text>
+
+  <!-- Prompt preview -->
+  <text x="100" y="564" class="primary label">提示词预览</text>
+  <text x="861" y="564" class="blue tiny">展开完整提示词　⌄</text>
+  <rect x="100" y="577" width="872" height="232" rx="9" fill="#171a20" stroke="#363c46"/>
+  <rect x="116" y="592" width="142" height="22" rx="5" fill="#292e37"/>
+  <text x="127" y="607" fill="#b3c4dc" font-size="11" font-family="Consolas, monospace">subject_definitions</text>
+  <text x="116" y="637" class="primary small">角色身份以图 1、图 2 为准；图 3 定义修理铺环境，图 4、图 5 定义道具外观。</text>
+  <rect x="116" y="651" width="67" height="22" rx="5" fill="#292e37"/>
+  <text x="127" y="666" fill="#b3c4dc" font-size="11" font-family="Consolas, monospace">summary</text>
+  <text x="116" y="694" class="primary small">[reference generation] 以图 6 的构图为锚点，保持人物外观、左右站位和道具位置连续。</text>
+  <text x="116" y="718" class="primary small">让角色完成一个清楚的动作弧；场景空间与光线延续图 3，不增加无关人物或道具。</text>
+  <rect x="116" y="736" width="840" height="1" fill="#30353e"/>
+  <text x="116" y="760" class="secondary tiny">声音映射</text>
+  <text x="181" y="760" class="secondary tiny">音频 1 → 角色 A　·　音频 2 → 角色 B</text>
+  <text x="116" y="786" class="muted tiny">示意提示词：实际界面应在提交前展示完整文本，并与上方素材编号一一对应。</text>
+
+  <!-- Footer -->
+  <path d="M94 828H978" stroke="#343943"/>
+  <circle cx="108" cy="865" r="5" fill="#71c59c"/>
+  <text x="122" y="862" class="primary small" font-weight="600">本次将提交 6 张图 + 2 段音频</text>
+  <text x="122" y="882" class="secondary tiny">顺序、提示词和生成参数会一起保存到结果节点</text>
+  <rect x="811" y="846" width="160" height="48" rx="8" fill="#287ee8"/>
+  <path d="M835 862l9 8-9 8z" fill="#fff"/>
+  <text x="900" y="876" text-anchor="middle" fill="#fff" font-size="14" font-weight="650">生成视频</text>
+
+  <!-- Result node -->
+  <g filter="url(#panelShadow)">
+    <rect x="1030" y="193" width="512" height="692" rx="15" fill="#1c2026" stroke="#414752" stroke-width="1.2"/>
+  </g>
+  <path d="M1031 246H1541" stroke="#353b45"/>
+  <rect x="1052" y="208" width="27" height="25" rx="6" fill="#253c35"/>
+  <path d="M1060 214h12v12h-12zM1063 211h6" fill="none" stroke="#7ad0a2" stroke-width="1.25"/>
+  <text x="1089" y="220" class="primary label">视频结果 · SHOT-05</text>
+  <rect x="1460" y="207" width="61" height="24" rx="12" fill="#292e36"/>
+  <text x="1490.5" y="223" text-anchor="middle" class="secondary tiny">示意</text>
+
+  <!-- Illustrative cover -->
+  <rect x="1052" y="263" width="468" height="263" rx="9" fill="url(#coverSky)"/>
+  <path d="M1052 431h468v95h-468z" fill="url(#coverFloor)"/>
+  <path d="M1070 303l85-31 78 32v129h-163z" fill="#586365" opacity=".9"/>
+  <path d="M1070 303l85-31v31z" fill="#89938c"/>
+  <rect x="1087" y="322" width="75" height="83" fill="#303a3d"/>
+  <path d="M1094 329h61v69h-61z" fill="#b58b60"/>
+  <path d="M1094 352h61M1125 329v69" stroke="#4e514d" stroke-width="2"/>
+  <rect x="1179" y="343" width="52" height="88" fill="#394346"/>
+  <path d="M1185 351h40v18h-40zM1185 375h40v18h-40z" fill="#b18b5e"/>
+  <path d="M1247 429h240" stroke="#e5bf8d" stroke-width="2" opacity=".35"/>
+  <!-- bicycle -->
+  <circle cx="1320" cy="415" r="34" fill="none" stroke="#1f282c" stroke-width="5"/>
+  <circle cx="1430" cy="415" r="34" fill="none" stroke="#1f282c" stroke-width="5"/>
+  <path d="M1320 415l35-57 38 57h-73l42-45h68l-38 45M1352 350h18M1393 354l8-9" fill="none" stroke="#233036" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- two simple figures -->
+  <circle cx="1264" cy="359" r="12" fill="#d5ae88"/>
+  <path d="M1251 373q13-8 26 0l10 54h-44z" fill="#38414b"/>
+  <path d="M1258 426l-8 38M1275 426l11 38" stroke="#252a30" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="1482" cy="363" r="11" fill="#d7ba9a"/>
+  <path d="M1470 376q12-7 25 0l8 49h-40z" fill="#526b68"/>
+  <path d="M1475 423l-5 39M1491 423l12 39" stroke="#2b3032" stroke-width="7" stroke-linecap="round"/>
+  <rect x="1052" y="474" width="468" height="52" rx="0" fill="#111419" opacity=".74"/>
+  <circle cx="1080" cy="500" r="14" fill="#fff" opacity=".92"/>
+  <path d="M1077 492v16l12-8z" fill="#1c232b"/>
+  <text x="1105" y="497" class="primary small" font-weight="600">封面预览</text>
+  <text x="1105" y="515" class="secondary tiny">此处显示生成视频及封面</text>
+  <text x="1495" y="506" text-anchor="end" class="primary tiny">00:15</text>
+
+  <!-- Generated request snapshot -->
+  <text x="1052" y="558" class="primary label">本次生成依据</text>
+  <rect x="1368" y="540" width="152" height="24" rx="12" fill="#22352d" stroke="#315341"/>
+  <circle cx="1383" cy="552" r="3.5" fill="#76c89e"/>
+  <text x="1394" y="556" fill="#a7d8bc" font-size="10.5">与视频一起保存</text>
+  <text x="1052" y="581" class="secondary tiny">图片顺序与配置一致</text>
+
+  <!-- six miniature references -->
+  <g>
+    <rect x="1052" y="591" width="58" height="43" rx="5" fill="url(#thumbWarm)"/>
+    <circle cx="1081" cy="604" r="6" fill="#f0d2ad"/>
+    <path d="M1072 629q2-17 9-17t9 17" fill="#39404a"/>
+    <circle cx="1061" cy="600" r="8" fill="#15191f"/><text x="1061" y="604" text-anchor="middle" fill="#fff" font-size="9">1</text>
+    <text x="1081" y="648" text-anchor="middle" class="secondary tiny">角色 A</text>
+  </g>
+  <g>
+    <rect x="1127" y="591" width="58" height="43" rx="5" fill="url(#thumbCool)"/>
+    <circle cx="1156" cy="604" r="6" fill="#eed0aa"/>
+    <path d="M1147 629q2-17 9-17t9 17" fill="#3c4d57"/>
+    <circle cx="1136" cy="600" r="8" fill="#15191f"/><text x="1136" y="604" text-anchor="middle" fill="#fff" font-size="9">2</text>
+    <text x="1156" y="648" text-anchor="middle" class="secondary tiny">角色 B</text>
+  </g>
+  <g>
+    <rect x="1202" y="591" width="58" height="43" rx="5" fill="url(#thumbRoom)"/>
+    <path d="M1208 610l23-14 23 14v21h-46z" fill="#435356"/>
+    <rect x="1217" y="613" width="12" height="18" fill="#c6a076"/>
+    <circle cx="1211" cy="600" r="8" fill="#15191f"/><text x="1211" y="604" text-anchor="middle" fill="#fff" font-size="9">3</text>
+    <text x="1231" y="648" text-anchor="middle" class="secondary tiny">场景</text>
+  </g>
+  <g>
+    <rect x="1277" y="591" width="58" height="43" rx="5" fill="#647e83"/>
+    <circle cx="1292" cy="619" r="8" fill="none" stroke="#e1d2b9" stroke-width="2"/>
+    <circle cx="1320" cy="619" r="8" fill="none" stroke="#e1d2b9" stroke-width="2"/>
+    <path d="M1292 619l10-16h8l10 16M1302 603l8 16" fill="none" stroke="#eed4ac" stroke-width="2"/>
+    <circle cx="1286" cy="600" r="8" fill="#15191f"/><text x="1286" y="604" text-anchor="middle" fill="#fff" font-size="9">4</text>
+    <text x="1306" y="648" text-anchor="middle" class="secondary tiny">车辆</text>
+  </g>
+  <g>
+    <rect x="1352" y="591" width="58" height="43" rx="5" fill="#655f70"/>
+    <path d="M1371 625l16-24 4 3-14 23zM1385 603l-2-7 7-4 5 4-2 7" fill="#e5c58f"/>
+    <circle cx="1361" cy="600" r="8" fill="#15191f"/><text x="1361" y="604" text-anchor="middle" fill="#fff" font-size="9">5</text>
+    <text x="1381" y="648" text-anchor="middle" class="secondary tiny">道具</text>
+  </g>
+  <g>
+    <rect x="1427" y="591" width="58" height="43" rx="5" fill="#566678"/>
+    <rect x="1435" y="597" width="42" height="31" fill="none" stroke="#ddc99e" stroke-width="1"/>
+    <path d="M1456 597v31M1435 613h42" stroke="#ddc99e" stroke-width=".8"/>
+    <path d="M1450 606l8-4 9 6-2 10-11 4-7-8z" fill="#d28b62"/>
+    <circle cx="1436" cy="600" r="8" fill="#15191f"/><text x="1436" y="604" text-anchor="middle" fill="#fff" font-size="9">6</text>
+    <text x="1456" y="648" text-anchor="middle" class="secondary tiny">构图</text>
+  </g>
+
+  <!-- audio snapshot rows -->
+  <rect x="1052" y="663" width="468" height="30" rx="6" fill="#252a32"/>
+  <circle cx="1068" cy="678" r="8" fill="#263b55"/>
+  <path d="M1066 673v10l7-5z" fill="#8fc0ff"/>
+  <text x="1083" y="682" class="primary tiny">音频 1 · 角色 A 声线</text>
+  <path d="M1330 678v3m6-7v11m6-5v5m6-10v12m6-8v8m6-11v10m6-6v6m6-10v12m6-8v8m6-5v5m6-9v9" stroke="#6ea5ef" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="1496" y="682" text-anchor="end" class="secondary tiny">00:06</text>
+  <rect x="1052" y="699" width="468" height="30" rx="6" fill="#252a32"/>
+  <circle cx="1068" cy="714" r="8" fill="#263b55"/>
+  <path d="M1066 709v10l7-5z" fill="#8fc0ff"/>
+  <text x="1083" y="718" class="primary tiny">音频 2 · 角色 B 声线</text>
+  <path d="M1330 714v3m6-7v11m6-5v5m6-10v12m6-8v8m6-11v10m6-6v6m6-10v12m6-8v8m6-5v5m6-9v9" stroke="#6ea5ef" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="1496" y="718" text-anchor="end" class="secondary tiny">00:05</text>
+
+  <!-- prompt snapshot -->
+  <rect x="1052" y="742" width="468" height="104" rx="8" fill="#171a20" stroke="#343a44"/>
+  <text x="1068" y="764" class="blue tiny" font-weight="600">提示词快照</text>
+  <text x="1068" y="784" class="secondary tiny">图 1、2 为人物身份；图 3 为场景；图 4、5 为道具，</text>
+  <text x="1068" y="801" class="secondary tiny">按图 6 构图，保持站位与空间连续。声线对应音频 1、2。</text>
+  <text x="1068" y="829" class="blue tiny">查看完整提示词与参数　⌄</text>
+  <path d="M1052 858H1520" stroke="#353b45"/>
+  <text x="1052" y="875" class="muted tiny">结果卡保留生成当时的输入快照，方便复查与复用。</text>
+</svg>

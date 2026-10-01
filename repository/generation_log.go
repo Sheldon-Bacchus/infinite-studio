@@ -30,6 +30,8 @@ func HasAnyVideoGenerationLog(userID string) (bool, error) {
 }
 
 func UpsertVideoGenerationLogs(userID string, logs []model.VideoGenerationLog) error {
+	unlock := LockLocalWorkspaceReferences()
+	defer unlock()
 	db, err := DB()
 	if err != nil {
 		return err
@@ -38,6 +40,9 @@ func UpsertVideoGenerationLogs(userID string, logs []model.VideoGenerationLog) e
 		log.UserID = userID
 		if strings.TrimSpace(log.ID) == "" || isDeletedVideoGenerationLog(userID, log) {
 			continue
+		}
+		if err := ValidateLocalWorkspaceStorageReferences(log.PayloadJSON); err != nil {
+			return err
 		}
 		var existing model.VideoGenerationLog
 		found := false
@@ -132,6 +137,8 @@ func HasAnyImageGenerationLog(userID string) (bool, error) {
 }
 
 func UpsertImageGenerationLogs(userID string, logs []model.ImageGenerationLog) error {
+	unlock := LockLocalWorkspaceReferences()
+	defer unlock()
 	db, err := DB()
 	if err != nil {
 		return err
@@ -140,6 +147,9 @@ func UpsertImageGenerationLogs(userID string, logs []model.ImageGenerationLog) e
 		log.UserID = userID
 		if strings.TrimSpace(log.ID) == "" || isDeletedImageGenerationLog(userID, log) {
 			continue
+		}
+		if err := ValidateLocalWorkspaceStorageReferences(log.PayloadJSON); err != nil {
+			return err
 		}
 		var existing model.ImageGenerationLog
 		found := false
@@ -254,4 +264,3 @@ func generationLogIdentityValues(values ...string) []string {
 	}
 	return result
 }
-

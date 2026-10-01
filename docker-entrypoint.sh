@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-PORT=8080 /app/server &
+PORT=8081 /app/server &
 API_PID=$!
 
 cd /app/web

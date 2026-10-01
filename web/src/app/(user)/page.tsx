@@ -14,6 +14,7 @@ import { useEffectiveConfig } from "@/stores/use-config-store";
 import { AssetPickerModal } from "./canvas/components/asset-picker-modal";
 import { CanvasAssistantComposer } from "./canvas/components/canvas-assistant-composer";
 import { useCanvasStore } from "./canvas/stores/use-canvas-store";
+import { createAndOpenCanvasProject } from "./canvas/utils/canvas-project-navigation";
 import { canvasResourceLabel } from "./canvas/utils/canvas-resource-references";
 import { HomeBannerCarousel, type HomeBanner } from "./home-banner-carousel";
 import {
@@ -121,11 +122,14 @@ export default function IndexPage() {
         const titles = new Set(useCanvasStore.getState().projects.map(({ title }) => title));
         let title = "无限画布";
         for (let i = 1; titles.has(title); i++) title = `无限画布 ${i}`;
-        const projectId = createProject(title, {
-            agentConfig,
-            pendingAgentRequest: { prompt: text, assets: pendingAssets.filter((asset) => referenceIds.includes(asset.nodeId)), skills: selectedSkills },
-        });
-        router.push(`/canvas/${projectId}`);
+        createAndOpenCanvasProject(
+            title,
+            (projectTitle) => createProject(projectTitle, {
+                agentConfig,
+                pendingAgentRequest: { prompt: text, assets: pendingAssets.filter((asset) => referenceIds.includes(asset.nodeId)), skills: selectedSkills },
+            }),
+            (path) => router.push(path),
+        );
     };
 
     const selectSkill = (skill: CanvasAgentSkillSelection) => {

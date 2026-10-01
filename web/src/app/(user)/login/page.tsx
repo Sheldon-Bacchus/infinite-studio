@@ -2,10 +2,12 @@
 
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { App, Button, Form, Input, Segmented, Space } from "antd";
+import { Clapperboard } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { fetchCurrentUser } from "@/services/api/auth";
+import { resolvePostLoginRedirect } from "@/lib/login-redirect";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -76,9 +78,8 @@ function LoginContent() {
             const action = mode === "register" ? register : login;
             const user = await action({ username: values.username, password: values.password });
             message.success(mode === "register" ? "注册成功" : "登录成功");
-            router.replace(redirect);
+            router.replace(resolvePostLoginRedirect(redirect, user.role));
             router.refresh();
-            if (user.role !== "admin") router.replace("/");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "登录失败");
         }
@@ -88,14 +89,8 @@ function LoginContent() {
         <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] px-6 py-10 [background-size:16px_16px] dark:bg-[radial-gradient(rgba(245,245,244,.16)_1px,transparent_1px)]">
             <section className="w-full max-w-[420px]">
                 <div className="mb-7 text-center">
-                    <span
-                        className="mx-auto mb-4 block size-12 bg-stone-950 dark:bg-stone-100"
-                        style={{
-                            mask: "url(/logo.svg) center / contain no-repeat",
-                            WebkitMask: "url(/logo.svg) center / contain no-repeat",
-                        }}
-                        aria-label="无限画布"
-                    />
+                    <Clapperboard className="mx-auto mb-3 size-12 text-stone-950 dark:text-stone-100" aria-hidden="true" />
+                    <p className="mb-4 text-sm font-medium text-stone-600 dark:text-stone-300">无限片场 · Infinite Studio</p>
                     <h1 className="text-3xl font-semibold tracking-normal text-stone-950 dark:text-stone-100">账号登录</h1>
                     <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">支持账号密码和 Linux.do 登录。</p>
                 </div>

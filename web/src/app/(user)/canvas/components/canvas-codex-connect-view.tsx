@@ -6,10 +6,11 @@ import { Copy, KeyRound, Link2, MessageSquare, PlugZap } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { CANVAS_AGENT_RUNTIME } from "../agent/agent-runtime-config";
 import type { useCodexAgent } from "../agent/use-codex-agent";
 
-const pluginCommand = "codex plugin marketplace add https://github.com/tigerowo/infinite-canvas.git\ncodex plugin add canvas-agent@infinite-canvas";
-const startCommand = "npx -y @tigerowo/canvas-agent@latest";
+const pluginCommand = `codex plugin marketplace add ${CANVAS_AGENT_RUNTIME.application.repository}.git\ncodex plugin add ${CANVAS_AGENT_RUNTIME.agentRuntime.pluginName}@infinite-canvas`;
+const startCommand = `npx -y ${CANVAS_AGENT_RUNTIME.agentRuntime.packageSpecifier}`;
 
 export function CanvasCodexConnectView({ agent, onChat }: {
     agent: Pick<ReturnType<typeof useCodexAgent>, "connection" | "status" | "error" | "connect" | "disconnect">;
@@ -33,7 +34,24 @@ export function CanvasCodexConnectView({ agent, onChat }: {
         <div className="space-y-4">
             <div>
                 <h2 className="text-base font-semibold leading-6">连接本地 Agent</h2>
-                <p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>按使用场景选择一种连接方式。</p>
+                <p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>通过 Codex 插件连接画布。</p>
+            </div>
+            <div className="space-y-2 rounded-lg border p-3" style={{ borderColor: theme.node.stroke }}>
+                <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">统一 Agent 运行时</div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
+                        <span className="size-1.5 rounded-full bg-emerald-500" />唯一启用
+                    </span>
+                </div>
+                <div className="grid gap-1 text-xs leading-5" style={{ color: theme.node.muted }}>
+                    <div><span className="opacity-65">应用主线：</span>{CANVAS_AGENT_RUNTIME.application.label} · {CANVAS_AGENT_RUNTIME.application.version}</div>
+                    <div><span className="opacity-65">Agent 包：</span><code>{CANVAS_AGENT_RUNTIME.agentRuntime.packageSpecifier}</code></div>
+                    <div><span className="opacity-65">MCP：</span><code>{CANVAS_AGENT_RUNTIME.agentRuntime.mcpServerName}</code> · 端口 {CANVAS_AGENT_RUNTIME.agentRuntime.defaultPort}</div>
+                    <div><span className="opacity-65">协议：</span>{CANVAS_AGENT_RUNTIME.agentRuntime.transport}</div>
+                </div>
+                <p className="text-[11px] leading-5" style={{ color: theme.node.muted }}>
+                    社区替代包不加载：{CANVAS_AGENT_RUNTIME.alternatives[0]?.packageName || "未配置"}。所有画布 Agent、Codex 插件和直接 MCP 均使用上面的唯一运行时。
+                </p>
             </div>
             <div className="space-y-2 px-3 py-2.5">
                 <h3 className="text-sm font-medium">方式一：在 Codex 中使用插件</h3>
@@ -43,9 +61,7 @@ export function CanvasCodexConnectView({ agent, onChat }: {
             </div>
             <div className="space-y-2 rounded-lg border px-3 py-2.5" style={{ borderColor: theme.node.stroke }}>
                 <div className="text-xs font-medium">Codex 插件提醒</div>
-                <p className="text-xs leading-5" style={{ color: theme.node.muted }}>安装插件或手动添加 MCP 后，画布工具才会进入 Codex 上下文。仅启动本地 Agent 不会安装 MCP。</p>
-                {commandBlock("codex plugin remove canvas-agent", "移除插件")}
-                {commandBlock("codex mcp remove infinite-canvas", "移除 MCP")}
+                <p className="text-xs leading-5" style={{ color: theme.node.muted }}>插件会启动本地 Agent 并自动传递连接信息。</p>
             </div>
             <div className="space-y-2 px-3 py-2.5">
                 <h3 className="text-sm font-medium">方式二：直接运行 Agent</h3>
@@ -70,7 +86,7 @@ export function CanvasCodexConnectView({ agent, onChat }: {
                 <div className="mt-3 grid gap-3">
                     <label className="grid gap-1.5">
                         <span className="flex items-center gap-1.5 text-xs" style={{ color: theme.node.muted }}><Link2 className="size-3.5" />本地地址 <span className="opacity-70">Local URL</span></span>
-                        <Input size="large" prefix={<Link2 className="mr-1 size-4" style={{ color: theme.node.faint }} />} aria-label="本地 Agent 地址" value={draft.endpoint} onChange={(event) => setDraft((current) => ({ ...current, endpoint: event.target.value }))} placeholder="http://127.0.0.1:3210" />
+                        <Input size="large" prefix={<Link2 className="mr-1 size-4" style={{ color: theme.node.faint }} />} aria-label="本地 Agent 地址" value={draft.endpoint} onChange={(event) => setDraft((current) => ({ ...current, endpoint: event.target.value }))} placeholder={`http://127.0.0.1:${CANVAS_AGENT_RUNTIME.agentRuntime.defaultPort}`} />
                     </label>
                     <label className="grid gap-1.5">
                         <span className="flex items-center gap-1.5 text-xs" style={{ color: theme.node.muted }}><KeyRound className="size-3.5" />连接 Token <span className="opacity-70">Connect token</span></span>

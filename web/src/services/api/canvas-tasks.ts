@@ -41,16 +41,3 @@ export async function deleteCanvasTasks(sourceId: string, nodeIds: string[] = []
         token,
     );
 }
-
-export async function deleteCanvasProjects(ids: string[]) {
-    const token = useUserStore.getState().token;
-    const projectIds = Array.from(
-        new Set(ids.map((id) => id.trim()).filter(Boolean)),
-    );
-    if (!token || !projectIds.length) return;
-    return apiPost<{ deleted: boolean }>(
-        "/api/v1/canvas/projects/delete",
-        { ids: projectIds },
-        token,
-    );
-}

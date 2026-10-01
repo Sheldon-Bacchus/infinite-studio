@@ -1,16 +1,18 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button } from "antd";
-import { Download, FileUp, Plus } from "lucide-react";
+import { Clapperboard, Download, FileUp, Plus } from "lucide-react";
 
 import { readZip } from "@/lib/zip";
-import { setMediaBlob } from "@/services/file-storage";
-import { setImageBlob } from "@/services/image-storage";
+import { uploadLocalWorkspaceFile } from "@/services/api/local-workspace";
+import { withStableCanvasImportIdentity } from "./utils/import-identity";
 import { CanvasDeleteProjectsDialog } from "./components/canvas-delete-projects-dialog";
+import { CanvasConflictDraftList } from "./components/canvas-conflict-draft-list";
 import { CanvasProjectCard } from "./components/canvas-project-card";
 import type { CanvasExportFile } from "./export-types";
+import { createAndOpenCanvasProject, openExistingCanvasProject } from "./utils/canvas-project-navigation";
 import { useCanvasStore } from "./stores/use-canvas-store";
 import { useCanvasUiStore } from "./stores/use-canvas-ui-store";
 import { exportCanvasProjects } from "./utils/canvas-export";
@@ -21,15 +23,27 @@ export default function CanvasPage() {
     const inputRef = useRef<HTMLInputElement>(null);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const projects = useCanvasStore((state) => state.projects);
+    const conflictDrafts = useCanvasStore((state) => state.conflictDrafts);
     const createProject = useCanvasStore((state) => state.createProject);
-    const importProject = useCanvasStore((state) => state.importProject);
+    const restoreConflictDraftAsNewProject = useCanvasStore((state) => state.restoreConflictDraftAsNewProject);
+    const importProjects = useCanvasStore((state) => state.importProjects);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
+    const [recoveringDraftId, setRecoveringDraftId] = useState<string | null>(null);
 
-    const enterProject = (id: string) => {
-        router.push(`/canvas/${id}`);
+    const createAndEnter = () => createAndOpenCanvasProject(`无限画布 ${projects.length + 1}`, createProject, (path) => router.push(path));
+    const recoverConflictDraft = async (draftId: string) => {
+        setRecoveringDraftId(draftId);
+        try {
+            const recoveredId = await restoreConflictDraftAsNewProject(draftId);
+            message.success("未保存编辑已恢复为独立画布");
+            openExistingCanvasProject(recoveredId, (path) => router.push(path));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "恢复画布副本失败");
+        } finally {
+            setRecoveringDraftId(null);
+        }
     };
-    const createAndEnter = () => enterProject(createProject(`无限画布 ${projects.length + 1}`));
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -37,20 +51,28 @@ export default function CanvasPage() {
             const projectFile = zip.get("projects.json");
             if (!projectFile) throw new Error("missing projects.json");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
-            await Promise.all(
-                data.projects.flatMap((project) =>
-                    project.files.map(async (item) => {
-                        const blob = zip.get(item.path);
-                        if (!blob) return;
-                        const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-                        await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
-                    }),
-                ),
-            );
-            data.projects.forEach((item) => importProject(item.project));
+            const replacements = new Map<string, { storageKey: string; url: string }>();
+            const uploadPromises = new Map<string, Promise<void>>();
+            for (const item of data.projects.flatMap((project) => project.files)) {
+                if (uploadPromises.has(item.storageKey)) continue;
+                const blob = zip.get(item.path);
+                if (!blob) continue;
+                const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
+                const uploadPromise = uploadLocalWorkspaceFile(typedBlob, item.path.split("/").pop() || "canvas-asset")
+                    .then((uploaded) => {
+                        replacements.set(item.storageKey, { storageKey: uploaded.storageKey, url: uploaded.url });
+                    });
+                uploadPromises.set(item.storageKey, uploadPromise);
+            }
+            await Promise.all(uploadPromises.values());
+            const projects = await Promise.all(data.projects.map(async (item) => {
+                const identified = await withStableCanvasImportIdentity(item.project);
+                return rewriteImportedProject(identified, replacements);
+            }));
+            await importProjects(projects);
             message.success(`已导入 ${data.projects.length} 个画布`);
-        } catch {
-            message.error("导入失败，请选择有效的画布压缩包");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "导入失败，请选择有效的画布压缩包");
         } finally {
             if (inputRef.current) inputRef.current.value = "";
         }
@@ -83,11 +105,16 @@ export default function CanvasPage() {
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
                             导入画布
                         </Button>
+                        <Button disabled={!hydrated} icon={<Clapperboard className="size-4" />} onClick={() => router.push("/xiaji")}>
+                            虾塘
+                        </Button>
                         <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={createAndEnter}>
                             新建画布
                         </Button>
                     </div>
                 </header>
+
+                <CanvasConflictDraftList drafts={conflictDrafts} recoveringDraftId={recoveringDraftId} onRecover={recoverConflictDraft} />
 
                 {!hydrated ? (
                     <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">正在加载画布...</section>
@@ -112,4 +139,28 @@ export default function CanvasPage() {
             <CanvasDeleteProjectsDialog />
         </main>
     );
+}
+
+function rewriteImportedProject<T>(value: T, replacements: ReadonlyMap<string, { storageKey: string; url: string }>): T {
+    if (typeof value === "string") {
+        return (replacements.get(value)?.storageKey || value) as T;
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => rewriteImportedProject(item, replacements)) as T;
+    }
+    if (!value || typeof value !== "object") return value;
+
+    const source = value as Record<string, unknown>;
+    const result = Object.fromEntries(
+        Object.entries(source).map(([key, item]) => [key, rewriteImportedProject(item, replacements)]),
+    ) as Record<string, unknown>;
+    const sourceStorageKey = typeof source.storageKey === "string" ? source.storageKey : "";
+    const replacement = replacements.get(sourceStorageKey);
+    if (replacement) {
+        result.storageKey = replacement.storageKey;
+        for (const field of ["url", "dataUrl", "content"]) {
+            if (typeof source[field] === "string" && source[field]) result[field] = replacement.url;
+        }
+    }
+    return result as T;
 }

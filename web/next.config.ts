@@ -8,6 +8,7 @@ import { parseChangelog } from "@/lib/release";
 const webDir = dirname(fileURLToPath(import.meta.url));
 const localVersion = readFileSync(resolve(webDir, "../VERSION"), "utf8").trim() || "dev";
 const localChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
+const canvasAgentRuntime = JSON.parse(readFileSync(resolve(webDir, "../canvas-agent/agent-runtime.json"), "utf8"));
 
 export default function nextConfig(phase: string): NextConfig {
     const isDev = phase === PHASE_DEVELOPMENT_SERVER;
@@ -15,6 +16,9 @@ export default function nextConfig(phase: string): NextConfig {
 
     return {
         output: "standalone",
+        turbopack: {
+            root: resolve(webDir, ".."),
+        },
         allowedDevOrigins: isDev ? ["*.*.*.*"] : [],
         typescript: {
             ignoreBuildErrors: true,
@@ -22,6 +26,7 @@ export default function nextConfig(phase: string): NextConfig {
         env: {
             NEXT_PUBLIC_APP_VERSION: localVersion,
             NEXT_PUBLIC_APP_RELEASES: JSON.stringify(releases),
+            NEXT_PUBLIC_CANVAS_AGENT_RUNTIME: JSON.stringify(canvasAgentRuntime),
         },
     };
 }

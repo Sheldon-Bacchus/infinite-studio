@@ -7,6 +7,7 @@ import { ImagePlus, Plus, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { visibleLocalStudioAssets } from "@/features/xiaji/local-studio-asset-visibility";
 import { fetchAssetLibrary, type AssetLibraryItem } from "@/services/api/assets";
 import { uploadAssetMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
@@ -181,7 +182,8 @@ function PickerCard({ title, kind, cover, loading, onClick }: { title: string; k
 
 function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => void }) {
     const { message } = App.useApp();
-    const assets = useAssetStore((state) => state.assets);
+    const storedAssets = useAssetStore((state) => state.assets);
+    const assets = useMemo(() => visibleLocalStudioAssets(storedAssets), [storedAssets]);
     const addAsset = useAssetStore((state) => state.addAsset);
     const [keyword, setKeyword] = useState("");
     const [kindFilter, setKindFilter] = useState("all");

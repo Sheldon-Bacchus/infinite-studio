@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 
+import staticCanvasTools from "../../../../../../canvas-agent/static-tools.json";
 import type { CanvasAgentPhase } from "../types";
 
 export const CANVAS_AGENT_ACTION_NAMES = [
@@ -13,6 +14,19 @@ export const CANVAS_AGENT_ACTION_NAMES = [
     "get_generation_config",
     "get_generation_task",
     "read_skill_file",
+    "list_local_assets",
+    "import_assets_to_canvas",
+    "preview_xiaji_episode_context",
+    "import_xiaji_episode_context",
+    "arrange_xiaji_episode_canvas",
+    "preview_xiaji_project_context",
+    "import_xiaji_project_context",
+    "arrange_xiaji_project_canvas",
+    "get_xiaji_project_context",
+    "stage_xiaji_artifact_package",
+    "create_config_draft",
+    "bind_config_group",
+    "bind_config_media",
     "set_agent_state",
     "create_primary_script_node",
     "create_text_node",
@@ -31,6 +45,17 @@ export const CANVAS_AGENT_ACTION_NAMES = [
 ] as const;
 
 export type CanvasAgentActionName = (typeof CANVAS_AGENT_ACTION_NAMES)[number];
+
+const CANVAS_AGENT_MEDIA_GENERATION_ACTIONS = new Set([
+    "generate_image",
+    "edit_image",
+    "generate_video",
+    "generate_audio",
+]);
+
+export function isCanvasAgentMediaGenerationAction(name: string): boolean {
+    return CANVAS_AGENT_MEDIA_GENERATION_ACTIONS.has(name);
+}
 
 export type CanvasAgentAction = {
     id: string;
@@ -68,6 +93,42 @@ export type ParsedCanvasAgentJson = {
 
 const STRING = { type: "string" };
 const STRING_ARRAY = { type: "array", items: { type: "string" }, maxItems: 50 };
+const LOCAL_ASSET_IDS = { type: "array", items: { type: "string", minLength: 1 }, minItems: 1, maxItems: 50 };
+const PROJECTION_SOURCE_IDS = { type: "array", items: { type: "string", minLength: 1 }, maxItems: 500 };
+const XIAJI_ARTIFACT_PACKAGE = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        schemaVersion: { type: "integer", const: 1 },
+        packageId: { type: "string", minLength: 1 },
+        projectAssetId: { type: "string", minLength: 1 },
+        episodeAssetId: { type: "string", minLength: 1 },
+        stage: { type: "string", enum: ["project-outline", "script", "production-breakdown", "asset-references"] },
+        baseRevision: { type: "string", pattern: "^[a-f0-9]{64}$" },
+        artifacts: {
+            type: "array",
+            maxItems: 500,
+            items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    sourceKey: { type: "string", minLength: 1 },
+                    kind: { type: "string", enum: ["episode", "script", "beat", "asset-reference", "media-reference"] },
+                    title: { type: "string", minLength: 1 },
+                    content: { type: "string" },
+                    metadata: { type: "object" },
+                },
+                required: ["sourceKey", "kind", "title"],
+            },
+        },
+        relations: { type: "array", maxItems: 2000, items: { type: "object", additionalProperties: false, properties: { from: STRING, type: STRING, to: STRING }, required: ["from", "type", "to"] } },
+        mediaAssetIds: PROJECTION_SOURCE_IDS,
+        contentDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    },
+    required: ["schemaVersion", "packageId", "projectAssetId", "stage", "baseRevision", "artifacts", "relations", "mediaAssetIds", "contentDigest"],
+};
+const INTEGER_ARRAY = { type: "array", items: { type: "integer", minimum: 1 }, maxItems: 50 };
+const SHOT_KEYS = ["SHOT-05", "SHOT-06", "SHOT-07", "SHOT-08"] as const;
 const PHASES: CanvasAgentPhase[] = ["intake", "concept", "script", "breakdown", "references", "storyboard", "video", "audio", "review", "complete"];
 const NODE_TYPES = ["image", "panorama", "text", "config", "video", "audio", "director", "group"];
 const ACTION_NAME_SET = new Set<string>(CANVAS_AGENT_ACTION_NAMES);
@@ -90,22 +151,74 @@ function defineTool(name: CanvasAgentActionName, description: string, properties
 
 export const CANVAS_AGENT_SKILL_FILE_TOOL = defineTool("read_skill_file", "按相对路径读取当前激活系统 Skill 的附属 Markdown 或文本文件。仅当 SKILL.md 明确引用附属文件时使用。", { skillId: STRING, path: STRING }, ["skillId", "path"]);
 
+const CANVAS_AGENT_STATIC_TOOLS: CanvasAgentToolDefinition[] = staticCanvasTools.map((tool) => ({
+    type: "function",
+    function: {
+        name: tool.name as CanvasAgentActionName,
+        description: tool.description,
+        parameters: tool.inputSchema as CanvasAgentToolDefinition["function"]["parameters"],
+    },
+}));
+
 export const CANVAS_AGENT_TOOLS: CanvasAgentToolDefinition[] = [
-    defineTool("get_canvas_summary", "读取当前画布摘要、节点、连线、模型配置和任务状态。"),
-    defineTool("get_selected_nodes", "读取用户当前选中的真实画布节点。"),
-    defineTool("query_canvas_nodes", "当默认上下文中没有目标节点 ID 时，按 ID、关键词或类型只读查询画布节点；找到 ID 后再用 get_node 读取详情。", {
-        nodeId: STRING,
-        keyword: STRING,
-        type: { type: "string", enum: NODE_TYPES },
-        page: { type: "integer", minimum: 1 },
-        pageSize: { type: "integer", minimum: 1, maximum: 50 },
-    }),
-    defineTool("get_node", "按真实节点 ID 读取节点。", { nodeId: STRING }, ["nodeId"]),
-    defineTool("get_upstream_nodes", "读取指定节点的所有直接上游节点。", { nodeId: STRING }, ["nodeId"]),
-    defineTool("get_downstream_nodes", "读取指定节点的所有直接下游节点。", { nodeId: STRING }, ["nodeId"]),
-    defineTool("get_connected_nodes", "读取指定节点直接连接的上下游节点。", { nodeId: STRING }, ["nodeId"]),
-    defineTool("get_generation_config", "读取全局模型和渠道，以及当前画布 Agent 独立保存的图片质量、图片尺寸、视频清晰度、视频尺寸、时长和声音配置。"),
-    defineTool("get_generation_task", "读取指定媒体节点的真实生成任务状态。", { nodeId: STRING }, ["nodeId"]),
+    ...CANVAS_AGENT_STATIC_TOOLS,
+    defineTool(
+        "import_assets_to_canvas",
+        "将本地素材库中用户明确选择的文本、图片、视频或音频素材复制为当前画布的原生节点；不需要镜头组，不移动或覆盖原素材，不自动连线，不触发媒体生成。",
+        { assetIds: LOCAL_ASSET_IDS, x: { type: "number" }, y: { type: "number" } },
+        ["assetIds"],
+    ),
+    defineTool(
+        "preview_xiaji_episode_context",
+        "只读预览指定本地虾镜项目与分集的已保存剧本、全部有序镜头、明确引用的虾塘素材、当前选中媒体版本、可导入闭包及关系边；不创建或修改画布内容。",
+        { projectAssetId: STRING, episodeAssetId: STRING },
+        ["projectAssetId", "episodeAssetId"],
+    ),
+    defineTool(
+        "import_xiaji_episode_context",
+        "仅在用户审阅并确认虾镜分集预览后，按预览摘要和明确批准的来源 ID 将文本及现有虾塘素材作为版本化节点保存到当前原生画布；不创建连线，不生成媒体。",
+        {
+            projectAssetId: STRING,
+            episodeAssetId: STRING,
+            sourceDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            mode: { type: "string", enum: ["complete", "selected"] },
+            sourceAssetIds: PROJECTION_SOURCE_IDS,
+            changedSourcePolicy: { type: "string", enum: ["create-new", "reject"] },
+            idempotencyKey: STRING,
+        },
+        ["projectAssetId", "episodeAssetId", "sourceDigest", "mode", "sourceAssetIds", "changedSourcePolicy", "idempotencyKey"],
+    ),
+    defineTool(
+        "arrange_xiaji_episode_canvas",
+        "仅在用户第二次审阅并明确确认投影清单摘要与全部节点 ID 后，对已导入的虾镜内容执行一次确定性排版、真实 group 分组和来源关系连线；不生成媒体，不覆盖用户改动。",
+        {
+            projectionId: STRING,
+            manifestDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            approvedNodeIds: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 500 },
+            idempotencyKey: STRING,
+        },
+        ["projectionId", "manifestDigest", "approvedNodeIds", "idempotencyKey"],
+    ),
+    defineTool(
+        "preview_xiaji_project_context",
+        "只读预览当前画布所绑定虾料项目的项目说明、原稿和已保存分集；不要求剧本或镜头，不修改画布。",
+        { projectAssetId: STRING },
+        ["projectAssetId"],
+    ),
+    defineTool(
+        "import_xiaji_project_context",
+        "仅在用户审阅并确认项目结构清单后，将项目、原稿和批准的已保存分集追加到同一项目原生画布；不创建连线、不覆盖节点、不生成媒体。",
+        { projectAssetId: STRING, sourceDigest: { type: "string", pattern: "^[a-f0-9]{64}$" }, sourceAssetIds: PROJECTION_SOURCE_IDS },
+        ["projectAssetId", "sourceDigest", "sourceAssetIds"],
+    ),
+    defineTool(
+        "arrange_xiaji_project_canvas",
+        "仅在用户再次审阅并确认投影摘要及完整节点 ID 清单后，对当前项目结构节点执行确定性排版并增加项目与原稿/分集之间的明确关系连线。",
+        { projectionId: STRING, manifestDigest: { type: "string", pattern: "^[a-f0-9]{64}$" }, approvedNodeIds: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 500 } },
+        ["projectionId", "manifestDigest", "approvedNodeIds"],
+    ),
+    defineTool("get_xiaji_project_context", "读取当前画布所绑定的虾料项目、原稿、分集、当前剧本/镜头版本及虾塘素材；只返回可供 Codex/Agent 创作的本地上下文，不生成或保存内容。", { projectAssetId: STRING, episodeAssetId: STRING }, ["projectAssetId"]),
+    defineTool("stage_xiaji_artifact_package", "将 Agent 已完成的虾料/虾镜产物暂存到当前浏览器标签，供虾镜页面预览和用户确认；不会写入素材或画布，也不触发生成。", { package: XIAJI_ARTIFACT_PACKAGE }, ["package"]),
     defineTool(
         "set_agent_state",
         "保存当前创作阶段、已确认方案和正式参考，供刷新后继续。",
@@ -137,7 +250,6 @@ export const CANVAS_AGENT_TOOLS: CanvasAgentToolDefinition[] = [
     defineTool("create_connection", "在两个真实节点之间创建来源连线。", { fromNodeId: STRING, toNodeId: STRING }, ["fromNodeId", "toNodeId"]),
     defineTool("delete_connection", "删除指定真实连线。", { connectionId: STRING }, ["connectionId"]),
     defineTool("create_group", "把两个或更多节点放进本项目 group 节点。", { title: STRING, nodeIds: STRING_ARRAY }, ["nodeIds"]),
-    defineTool("arrange_nodes", "整理指定节点；不传 nodeIds 时整理当前画布顶层节点。", { nodeIds: STRING_ARRAY }),
     defineTool(
         "generate_image",
         "创建图片节点和来源连线，并按 Agent 自动生成设置决定是否提交现有图片任务链路。sourceNodeIds 只放真实直接来源，独立生成必须传空数组；其中图片按数组顺序编号为图片1、图片2。",
@@ -179,6 +291,18 @@ export const CANVAS_AGENT_TOOLS: CanvasAgentToolDefinition[] = [
     defineTool("get_media_task_status", "读取图片、视频或音频节点的生成状态。", { nodeId: STRING }, ["nodeId"]),
 ];
 
+export const CANVAS_AGENT_CODEX_ONLY_ACTIONS: ReadonlySet<CanvasAgentActionName> = new Set([
+    "preview_xiaji_episode_context",
+    "import_xiaji_episode_context",
+    "arrange_xiaji_episode_canvas",
+    "preview_xiaji_project_context",
+    "import_xiaji_project_context",
+    "arrange_xiaji_project_canvas",
+    "get_xiaji_project_context",
+    "stage_xiaji_artifact_package",
+]);
+export const CANVAS_AGENT_USER_MODEL_TOOLS = CANVAS_AGENT_TOOLS.filter((tool) => !CANVAS_AGENT_CODEX_ONLY_ACTIONS.has(tool.function.name));
+
 export function normalizeCanvasAgentAction(name: unknown, args: unknown, id = nanoid()): CanvasAgentAction {
     if (typeof name !== "string" || !ACTION_NAME_SET.has(name)) throw new Error("模型返回了不允许的工具");
     if (args !== undefined && !isRecord(args)) throw new Error(name + " 的 arguments 必须是对象");
@@ -196,6 +320,129 @@ export function normalizeCanvasAgentAction(name: unknown, args: unknown, id = na
         case "get_canvas_summary":
         case "get_selected_nodes":
         case "get_generation_config":
+            break;
+        case "list_local_assets": {
+            const assetType = optionalString(input.type);
+            if (assetType && !["image", "audio", "video", "text"].includes(assetType)) throw new Error("无效的本地素材类型");
+            normalized = {
+                page: boundedInteger(input.page, 1, Number.MAX_SAFE_INTEGER) || 1,
+                pageSize: boundedInteger(input.pageSize, 1, 100) || 50,
+                ...(optionalString(input.keyword) ? { keyword: optionalString(input.keyword) } : {}),
+                ...(assetType ? { type: assetType } : {}),
+                ...(optionalString(input.category) ? { category: optionalString(input.category) } : {}),
+                ...(optionalString(input.tag) ? { tag: optionalString(input.tag) } : {}),
+            };
+            break;
+        }
+        case "import_assets_to_canvas": {
+            if (!Array.isArray(input.assetIds) || input.assetIds.length < 1 || input.assetIds.length > 50) throw new Error("assetIds 必须包含 1 到 50 个素材 ID");
+            const assetIds = input.assetIds.map((item) => requiredString(item, "assetIds 中的素材 ID"));
+            if (new Set(assetIds).size !== assetIds.length) throw new Error("assetIds 不能重复");
+            const x = optionalFiniteNumber(input.x, "x");
+            const y = optionalFiniteNumber(input.y, "y");
+            normalized = { assetIds, ...(x !== undefined ? { x } : {}), ...(y !== undefined ? { y } : {}) };
+            break;
+        }
+        case "preview_xiaji_episode_context":
+            normalized = {
+                projectAssetId: requiredString(input.projectAssetId, "projectAssetId"),
+                episodeAssetId: requiredString(input.episodeAssetId, "episodeAssetId"),
+            };
+            break;
+        case "preview_xiaji_project_context":
+            normalized = { projectAssetId: requiredString(input.projectAssetId, "projectAssetId") };
+            break;
+        case "get_xiaji_project_context":
+            normalized = {
+                projectAssetId: requiredString(input.projectAssetId, "projectAssetId"),
+                ...(optionalString(input.episodeAssetId) ? { episodeAssetId: optionalString(input.episodeAssetId) } : {}),
+            };
+            break;
+        case "stage_xiaji_artifact_package":
+            if (!isRecord(input.package)) throw new Error("package 必须是对象");
+            normalized = { package: input.package };
+            break;
+        case "import_xiaji_project_context": {
+            const sourceDigest = requiredString(input.sourceDigest, "sourceDigest");
+            if (!/^[a-f0-9]{64}$/.test(sourceDigest)) throw new Error("sourceDigest 必须是 64 位 SHA-256 摘要");
+            normalized = {
+                projectAssetId: requiredString(input.projectAssetId, "projectAssetId"),
+                sourceDigest,
+                sourceAssetIds: orderedProjectionSourceIds(input.sourceAssetIds),
+            };
+            break;
+        }
+        case "arrange_xiaji_project_canvas": {
+            const manifestDigest = requiredString(input.manifestDigest, "manifestDigest");
+            if (!/^[a-f0-9]{64}$/.test(manifestDigest)) throw new Error("manifestDigest 必须是 64 位 SHA-256 摘要");
+            normalized = {
+                projectionId: requiredString(input.projectionId, "projectionId"),
+                manifestDigest,
+                approvedNodeIds: orderedProjectionSourceIds(input.approvedNodeIds),
+            };
+            break;
+        }
+        case "import_xiaji_episode_context": {
+            const sourceDigest = requiredString(input.sourceDigest, "sourceDigest");
+            if (!/^[a-f0-9]{64}$/.test(sourceDigest)) throw new Error("sourceDigest 必须是 64 位 SHA-256 摘要");
+            const mode = requiredString(input.mode, "mode");
+            if (mode !== "complete" && mode !== "selected") throw new Error("mode 只能是 complete 或 selected");
+            const changedSourcePolicy = requiredString(input.changedSourcePolicy, "changedSourcePolicy");
+            if (changedSourcePolicy !== "create-new" && changedSourcePolicy !== "reject") throw new Error("changedSourcePolicy 只能是 create-new 或 reject");
+            normalized = {
+                projectAssetId: requiredString(input.projectAssetId, "projectAssetId"),
+                episodeAssetId: requiredString(input.episodeAssetId, "episodeAssetId"),
+                sourceDigest,
+                mode,
+                sourceAssetIds: orderedProjectionSourceIds(input.sourceAssetIds),
+                changedSourcePolicy,
+                idempotencyKey: requiredString(input.idempotencyKey, "idempotencyKey"),
+            };
+            break;
+        }
+        case "arrange_xiaji_episode_canvas": {
+            const manifestDigest = requiredString(input.manifestDigest, "manifestDigest");
+            if (!/^[a-f0-9]{64}$/.test(manifestDigest)) throw new Error("manifestDigest 必须是 64 位 SHA-256 摘要");
+            normalized = {
+                projectionId: requiredString(input.projectionId, "projectionId"),
+                manifestDigest,
+                approvedNodeIds: orderedProjectionSourceIds(input.approvedNodeIds),
+                idempotencyKey: requiredString(input.idempotencyKey, "idempotencyKey"),
+            };
+            break;
+        }
+        case "create_config_draft": {
+            const shotKey = requiredString(input.shotKey, "shotKey");
+            if (!SHOT_KEYS.includes(shotKey as (typeof SHOT_KEYS)[number])) throw new Error("仅支持 SHOT-05 到 SHOT-08");
+            const aspectRatio = requiredString(input.aspectRatio, "aspectRatio");
+            if (!["16:9", "9:16", "1:1"].includes(aspectRatio)) throw new Error("不支持的画幅比例");
+            const qualityInput = requiredString(input.quality, "quality");
+            const qualityMatch = qualityInput.match(/^(480|720|768|1080)p?$/i);
+            if (!qualityMatch) throw new Error("不支持的视频清晰度");
+            const quality = qualityMatch[1];
+            const durationSeconds = boundedInteger(input.durationSeconds, 1, 30);
+            if (durationSeconds === undefined) throw new Error("durationSeconds 必须为 1 到 30 的整数");
+            normalized = {
+                shotKey,
+                groupNodeId: requiredString(input.groupNodeId, "groupNodeId"),
+                promptNodeId: requiredString(input.promptNodeId, "promptNodeId"),
+                durationSeconds,
+                aspectRatio,
+                quality,
+            };
+            break;
+        }
+        case "bind_config_media": {
+            const mediaNodeIds = orderedStringArray(input.mediaNodeIds, "mediaNodeIds");
+            if (!mediaNodeIds.length) throw new Error("mediaNodeIds 至少需要一个真实媒体节点");
+            normalized = { configNodeId: requiredString(input.configNodeId, "configNodeId"), mediaNodeIds };
+            break;
+        }
+        case "bind_config_group":
+            normalized = {
+                groupNodeId: requiredString(input.groupNodeId, "groupNodeId"),
+                configNodeId: requiredString(input.configNodeId, "configNodeId"),
+            };
             break;
         case "query_canvas_nodes": {
             const nodeType = optionalString(input.type);
@@ -389,6 +636,18 @@ export function canvasAgentActionLabel(action: CanvasAgentAction) {
         get_generation_config: "正在读取生成配置",
         get_generation_task: "正在读取任务状态",
         read_skill_file: "正在读取 Skill 文件",
+        list_local_assets: "正在查询本地素材库",
+        import_assets_to_canvas: "正在导入本地素材到画布",
+        preview_xiaji_episode_context: "正在预览虾镜分集投影",
+        import_xiaji_episode_context: "正在导入虾镜分集到画布",
+        arrange_xiaji_episode_canvas: "正在按已确认清单整理虾镜画布",
+        preview_xiaji_project_context: "正在预览虾料项目结构",
+        import_xiaji_project_context: "正在导入虾料项目结构",
+        arrange_xiaji_project_canvas: "正在按已确认清单整理项目画布",
+        get_xiaji_project_context: "正在读取虾料/虾镜项目上下文",
+        stage_xiaji_artifact_package: "正在暂存 Agent 产物供项目审核",
+        create_config_draft: "正在保存配置草稿",
+        bind_config_media: "正在绑定配置素材芯片",
         set_agent_state: "正在保存创作进度",
         create_primary_script_node: "正在创建主剧本节点",
         create_text_node: "正在创建文本节点",
@@ -413,7 +672,7 @@ export function isCanvasAgentMediaAction(action: CanvasAgentAction) {
 }
 
 export function userLikelyRequestedCanvasAction(text: string) {
-    return /(?:创建|新增|插入|修改|更新|删除|连接|连线|分组|整理|生成|生图|执行|拆成|拆分|放到画布|开始做|(?:做|制作|添加|补充|移除|去掉).{0,8}(?:视频|音频|配音|旁白))/i.test(text);
+    return /(?:创建|新增|插入|修改|更新|删除|连接|连线|分组|整理|导入|生成|生图|执行|拆成|拆分|放到画布|开始做|(?:做|制作|添加|补充|移除|去掉).{0,8}(?:视频|音频|配音|旁白))/i.test(text);
 }
 
 function extractJsonObject(content: string) {
@@ -476,6 +735,12 @@ function optionalString(value: unknown) {
     return value.trim();
 }
 
+function optionalFiniteNumber(value: unknown, key: string) {
+    if (value === undefined) return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(key + " 必须是有限数字");
+    return value;
+}
+
 function stringArray(value: unknown, key = "节点 ID") {
     if (value === undefined) return [];
     if (!Array.isArray(value)) throw new Error(key + " 必须是字符串数组");
@@ -489,6 +754,33 @@ function stringArray(value: unknown, key = "节点 ID") {
 function optionalStringArray(value: unknown, key: string) {
     if (value === undefined) return undefined;
     return stringArray(value, key);
+}
+
+function orderedStringArray(value: unknown, key: string) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(key + " 必须是字符串数组");
+    if (value.length > 50) throw new Error(key + " 最多允许 50 项");
+    const items = value.map((item) => (item as string).trim());
+    if (new Set(items).size !== items.length) throw new Error(key + " 不能包含重复节点 ID");
+    return items;
+}
+
+function orderedProjectionSourceIds(value: unknown) {
+    if (!Array.isArray(value) || value.length > 500 || value.some((item) => typeof item !== "string" || !item.trim())) {
+        throw new Error("sourceAssetIds 必须是最多 500 项的非空字符串数组");
+    }
+    const ids = value.map((item) => (item as string).trim());
+    if (new Set(ids).size !== ids.length) throw new Error("sourceAssetIds 不能包含重复 ID");
+    return ids;
+}
+
+function boundedIntegerArray(value: unknown, key: string) {
+    if (!Array.isArray(value)) throw new Error(key + " 必须是正整数数组");
+    if (value.length > 50) throw new Error(key + " 最多允许 50 项，请拆分调用");
+    return [...new Set(value.map((item) => {
+        const number = boundedInteger(item, 1, Number.MAX_SAFE_INTEGER);
+        if (number === undefined) throw new Error(key + " 必须是正整数数组");
+        return number;
+    }))];
 }
 
 function positiveNumber(value: unknown) {

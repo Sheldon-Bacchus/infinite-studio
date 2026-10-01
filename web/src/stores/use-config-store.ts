@@ -105,6 +105,42 @@ export type AiConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 
+export const AUTODL_H3_MULTIMODAL_15S_WORKFLOW = "minimax_h3_image_audio_to_video_v2_15s";
+const AUTODL_H3_CHANNEL_ID = "autodl-h3-multimodal-15s";
+const AUTODL_H3_CHANNEL: LocalModelChannel = {
+    id: AUTODL_H3_CHANNEL_ID,
+    protocol: "autodl",
+    name: "AutoDL · H3 多图多音频 15 秒",
+    baseUrl: "https://autodl.art",
+    apiKey: "",
+    models: [AUTODL_H3_MULTIMODAL_15S_WORKFLOW],
+};
+const AUTODL_H3_ONLY_PRESET: Partial<AiConfig> = {
+    channelMode: "local",
+    baseUrl: AUTODL_H3_CHANNEL.baseUrl,
+    apiKey: "",
+    model: AUTODL_H3_MULTIMODAL_15S_WORKFLOW,
+    imageModel: "",
+    videoModel: AUTODL_H3_MULTIMODAL_15S_WORKFLOW,
+    textModel: "",
+    audioModel: "",
+    models: [AUTODL_H3_MULTIMODAL_15S_WORKFLOW],
+    imageModels: [],
+    videoModels: [AUTODL_H3_MULTIMODAL_15S_WORKFLOW],
+    textModels: [],
+    audioModels: [],
+    localChannels: [AUTODL_H3_CHANNEL],
+    activeChannelId: AUTODL_H3_CHANNEL_ID,
+    imageChannelId: AUTODL_H3_CHANNEL_ID,
+    videoChannelId: AUTODL_H3_CHANNEL_ID,
+    textChannelId: AUTODL_H3_CHANNEL_ID,
+    audioChannelId: AUTODL_H3_CHANNEL_ID,
+    videoSeconds: "15",
+    vquality: "768",
+    size: "9:16",
+    videoGenerateAudio: "true",
+};
+
 export const defaultConfig: AiConfig = {
     channelMode: "local",
     baseUrl: "https://api.openai.com",
@@ -173,6 +209,7 @@ export const defaultConfig: AiConfig = {
     videoChannelId: "",
     textChannelId: "",
     audioChannelId: "",
+    ...AUTODL_H3_ONLY_PRESET,
 };
 
 type ConfigStore = {
@@ -417,7 +454,9 @@ export const useConfigStore = create<ConfigStore>()(
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
+                const storedConfig = { ...defaultConfig, ...persistedConfig };
+                // H3 is the default for a fresh store, but a populated user store must retain its own AutoDL channels/workflows.
+                const config = storedConfig;
                 const localChannels = normalizeLocalChannels(config);
                 const modelChannels = localChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
                 const localModels = normalizeModelList(modelChannels.flatMap((channel) => channel.models));

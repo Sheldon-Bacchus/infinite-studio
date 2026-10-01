@@ -33,10 +33,17 @@ export type CameraControlOptions = {
 };
 
 export type CanvasNodeMetadata = {
+    xiaTang?: unknown;
     content?: string;
     groupId?: string;
     composerContent?: string;
     prompt?: string;
+    visualDescription?: string;
+    keyframePrompt?: string;
+    videoPrompt?: string;
+    audioPrompt?: string;
+    videoMode?: string;
+    durationSeconds?: number;
     excludeUpstreamText?: boolean;
     status?: CanvasNodeStatus;
     errorDetails?: string;
@@ -107,6 +114,45 @@ export type CanvasNodeMetadata = {
     panoramaFinalPrompt?: string;
     panoramaProjection?: "equirectangular";
     directorProject?: unknown;
+    sourceSystem?: string;
+    sourceProjectId?: string;
+    sourceEpisode?: number;
+    sourceRevision?: string;
+    sourceEntityType?: string;
+    sourceEntityId?: string;
+    sourceMediaRole?: string;
+    projectionRole?: string;
+    projectionKey?: string;
+    projectionId?: string;
+    projectionMode?: "complete" | "selected";
+    projectionCanvasId?: string;
+    projectionSourceAssetIds?: string[];
+    projectionManifestDigest?: string;
+    projectionRequestKey?: string;
+    projectionRequestDigest?: string;
+    projectionScriptAssetId?: string;
+    projectionDocumentKind?: "script" | "structure";
+    projectionBeatOrder?: Array<{ assetId: string; order: number }>;
+    projectionGroupNodeId?: string;
+    projectionLayoutDigest?: string;
+    projectionArrangeRequestKey?: string;
+    projectionArrangeRequestDigest?: string;
+    projectionImportedPosition?: Position;
+    projectionArrangedPosition?: Position;
+    projectionLayoutProjectionId?: string;
+    sourceItemDigest?: string;
+    sourceEpisodeAssetId?: string;
+    sourceBeatOrder?: number;
+    localStudio?: unknown;
+    /** Canonical local Xiaji project Asset ID for project-scoped canvas nodes. */
+    xiajiProjectAssetId?: string;
+    shotKey?: string;
+    sourcePresetId?: string;
+    sourceUrl?: string;
+    /** 来源素材的分类，仅用于画布本地查看与后续编辑。 */
+    category?: string;
+    /** 来源素材的标签，仅用于画布本地查看与后续编辑。 */
+    tags?: string[];
 };
 
 export type CanvasDirectorPanorama = {

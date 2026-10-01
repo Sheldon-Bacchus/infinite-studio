@@ -44,6 +44,8 @@ export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNo
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const composerInputs = getComposerReferenceNodes(nodeId, nodes);
+    if (composerInputs) return composerInputs;
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
     const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
@@ -53,11 +55,28 @@ export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[],
 }
 
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const composerInputs = getComposerReferenceNodes(nodeId, nodes);
+    if (composerInputs) return composerInputs;
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
     const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
     if (ownInputs.length) return ownInputs;
     return [];
+}
+
+function getComposerReferenceNodes(nodeId: string, nodes: CanvasNodeData[]) {
+    const config = nodes.find((node) => node.id === nodeId && node.type === CanvasNodeType.Config);
+    const composerContent = config?.metadata?.composerContent || "";
+    const referencedNodeIds = [...composerContent.matchAll(/@\[node:([^\]]+)\]/g)].map((match) => match[1]);
+    if (!referencedNodeIds.length) return null;
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const seen = new Set<string>();
+    return referencedNodeIds.flatMap((referencedNodeId) => {
+        const node = nodeById.get(referencedNodeId);
+        if (!node || seen.has(node.id) || !isCanvasReferenceNode(node)) return [];
+        seen.add(node.id);
+        return [node];
+    });
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "selection": "local-repository",
+  "application": {
+    "label": "当前仓库应用主线",
+    "repository": "https://github.com/Sheldon-Bacchus/infinite-studio",
+    "version": "v0.8.0",
+    "features": [
+      "DramaClaw / XiaJi 资产导入",
+      "H3 提示词与画布 Skill",
+      "AutoDL ComfyUI 工作流",
+      "画布内 Agent 与 Codex 面板"
+    ]
+  },
+  "agentRuntime": {
+    "id": "tigerowo-infinite-canvas-agent",
+    "label": "Infinite Canvas Core MCP",
+    "repository": "https://github.com/tigerowo/infinite-canvas",
+    "packageName": "@tigerowo/canvas-agent",
+    "packageSpecifier": "@tigerowo/canvas-agent@latest",
+    "mcpServerName": "infinite-canvas-core",
+    "pluginName": "canvas-agent",
+    "defaultPort": 3210,
+    "transport": "MCP stdio → 本地 HTTP 画布桥接"
+  },
+  "alternatives": [
+    {
+      "label": "其他社区分支（不启用）",
+      "repository": "https://github.com/basketikun/infinite-canvas",
+      "packageName": "@basketikun/canvas-agent",
+      "status": "not-selected",
+      "reason": "包名、插件路径和工具面不同；混用会产生第二套 Agent 运行时"
+    }
+  ],
+  "policy": {
+    "singleRuntime": true,
+    "doNotMixPackages": true,
+    "sourceOfTruth": "本文件"
+  }
+}

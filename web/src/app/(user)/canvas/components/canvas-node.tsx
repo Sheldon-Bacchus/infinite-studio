@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, Image as ImageIcon, Maximize2, Music2, Pause, Play, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, GripVertical, Image as ImageIcon, Maximize2, Music2, Pause, Play, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
@@ -15,6 +15,7 @@ import type { CanvasResourceReference } from "../utils/canvas-resource-reference
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
+const CANVAS_GROUP_DRAG_TYPE = "application/x-infinite-canvas-group";
 const CanvasPanoramaViewer = dynamic(() => import("./canvas-panorama-viewer"), { ssr: false, loading: () => null });
 
 type CanvasNodeProps = {
@@ -52,6 +53,7 @@ type CanvasNodeProps = {
     onRetry?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
     onSelectReference?: (nodeId: string) => void;
+    onDropGroupToConfig?: (groupNodeId: string, configNodeId: string) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
 };
 
@@ -113,10 +115,12 @@ export const CanvasNode = React.memo(function CanvasNode({
     onRetry,
     onViewImage,
     onSelectReference,
+    onDropGroupToConfig,
     onContextMenu,
 }: CanvasNodeProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [hovered, setHovered] = useState(false);
+    const [isGroupConfigDropTarget, setIsGroupConfigDropTarget] = useState(false);
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.title || "");
@@ -305,10 +309,24 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
         >
             {!referenceSelectionState ? <div
-                className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]"
+                className="absolute left-3 top-[-28px] z-[65] flex max-w-[calc(100%-24px)] items-center"
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
+                {isGroup && !isEditingTitle ? <span
+                    draggable
+                    className="mr-1 inline-flex cursor-grab items-center opacity-65 transition hover:opacity-100 active:cursor-grabbing"
+                    title="拖到视频配置节点，将本组提示词和素材整体加入配置"
+                    aria-label="拖动整个分组到视频配置"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                        event.dataTransfer.setData(CANVAS_GROUP_DRAG_TYPE, data.id);
+                        event.dataTransfer.effectAllowed = "copy";
+                    }}
+                >
+                    <GripVertical className="size-3.5" />
+                </span> : null}
                 {isEditingTitle ? (
                     <input
                         ref={titleInputRef}
@@ -351,10 +369,28 @@ export const CanvasNode = React.memo(function CanvasNode({
                 className={`relative h-full w-full overflow-visible border ${isGroup ? "rounded-xl" : "rounded-3xl border-2"}`}
                 style={{
                     background: isGroup ? theme.node.panel : hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
-                    borderColor: isGroup ? isGroupDropTarget || isActive ? selectionBlue : theme.node.stroke : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
-                    boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionBlue}66` : isGroup && isSelected ? `0 0 0 1px ${selectionBlue}55` : isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
+                    borderColor: isGroup ? isGroupDropTarget || isActive ? selectionBlue : theme.node.stroke : isGroupConfigDropTarget ? selectionBlue : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
+                    boxShadow: isGroupDropTarget || isGroupConfigDropTarget ? `0 0 0 2px ${selectionBlue}66` : isGroup && isSelected ? `0 0 0 1px ${selectionBlue}55` : isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
                 }}
                 onMouseDown={(event) => onMouseDown(event, data.id)}
+                onDragOver={(event) => {
+                    if (data.type !== CanvasNodeType.Config || !event.dataTransfer.types.includes(CANVAS_GROUP_DRAG_TYPE)) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    setIsGroupConfigDropTarget(true);
+                }}
+                onDragLeave={(event) => {
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                    setIsGroupConfigDropTarget(false);
+                }}
+                onDrop={(event) => {
+                    if (data.type !== CanvasNodeType.Config || !event.dataTransfer.types.includes(CANVAS_GROUP_DRAG_TYPE)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsGroupConfigDropTarget(false);
+                    const groupNodeId = event.dataTransfer.getData(CANVAS_GROUP_DRAG_TYPE);
+                    if (groupNodeId) onDropGroupToConfig?.(groupNodeId, data.id);
+                }}
                 onDoubleClick={(event) => {
                     if (referenceSelectionState) {
                         event.preventDefault();

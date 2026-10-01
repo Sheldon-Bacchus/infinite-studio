@@ -12,17 +12,22 @@ import (
 )
 
 type Config struct {
-	Port                string `env:"PORT" envDefault:"8080"`
-	AdminUsername       string `env:"ADMIN_USERNAME" envDefault:"admin"`
-	AdminPassword       string `env:"ADMIN_PASSWORD" envDefault:"infinite-canvas"`
-	JWTSecret           string `env:"JWT_SECRET" envDefault:"infinite-canvas"`
-	JWTExpireHours      int    `env:"JWT_EXPIRE_HOURS" envDefault:"168"`
-	StorageDriver       string `env:"STORAGE_DRIVER" envDefault:"sqlite"`
-	DatabaseDSN         string `env:"DATABASE_DSN" envDefault:"data/infinite-canvas.db"`
-	LinuxDoAuthorizeURL string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
-	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
-	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
-	AILogDir            string `env:"AI_LOG_DIR" envDefault:"data/logs/ai-calls"`
+	Host                    string `env:"HOST" envDefault:"127.0.0.1"`
+	Port                    string `env:"PORT" envDefault:"8081"`
+	AdminUsername           string `env:"ADMIN_USERNAME" envDefault:"admin"`
+	AdminPassword           string `env:"ADMIN_PASSWORD" envDefault:"infinite-canvas"`
+	JWTSecret               string `env:"JWT_SECRET" envDefault:"infinite-canvas"`
+	JWTExpireHours          int    `env:"JWT_EXPIRE_HOURS" envDefault:"168"`
+	StorageDriver           string `env:"STORAGE_DRIVER" envDefault:"sqlite"`
+	DatabaseDSN             string `env:"DATABASE_DSN" envDefault:"data/infinite-canvas.db"`
+	LocalFilesDir           string `env:"LOCAL_FILES_DIR" envDefault:"data/files"`
+	LinuxDoAuthorizeURL     string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
+	LinuxDoTokenURL         string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
+	LinuxDoUserInfoURL      string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
+	AILogDir                string `env:"AI_LOG_DIR" envDefault:"data/logs/ai-calls"`
+	DramaClawBaseURL        string `env:"DRAMACLAW_BASE_URL"`
+	DramaClawAPIToken       string `env:"DRAMACLAW_API_TOKEN"`
+	DramaClawUploadMaxBytes int64  `env:"DRAMACLAW_UPLOAD_MAX_BYTES" envDefault:"104857600"`
 }
 
 var Cfg Config

@@ -38,6 +38,11 @@ func New() *gin.Engine {
 		handler.DeleteFile(c.Writer, c.Request, c.Param("id"))
 	})
 	v1 := api.Group("/v1", middleware.UserAuth)
+	RegisterDramaIdentityRoutes(v1)
+	RegisterDramaSceneRoutes(v1)
+	RegisterDramaProjectConfigRoutes(v1)
+	RegisterDramaPropReferenceRoutes(v1)
+	RegisterDramaTaskRoutes(v1)
 	v1.POST("/images/generations", gin.WrapF(handler.AIImagesGenerations))
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
 	v1.POST("/responses", gin.WrapF(handler.AIResponses))
@@ -104,6 +109,75 @@ func New() *gin.Engine {
 	v1.POST("/canvas/projects", gin.WrapF(handler.SaveUserCanvasProject))
 	v1.POST("/canvas/projects/sync", gin.WrapF(handler.SyncUserCanvasProjects))
 	v1.POST("/canvas/projects/delete", gin.WrapF(handler.DeleteUserCanvasProjects))
+	v1.GET("/drama/projects", gin.WrapF(handler.DramaProjects))
+	v1.POST("/drama/projects", gin.WrapF(handler.DramaCreateProject))
+	v1.POST("/drama/projects/:project/archive", func(c *gin.Context) {
+		handler.DramaProjectLifecycle(c.Writer, c.Request, c.Param("project"), "archive")
+	})
+	v1.POST("/drama/projects/:project/unarchive", func(c *gin.Context) {
+		handler.DramaProjectLifecycle(c.Writer, c.Request, c.Param("project"), "unarchive")
+	})
+	v1.POST("/drama/projects/:project/delete", func(c *gin.Context) {
+		handler.DramaProjectLifecycle(c.Writer, c.Request, c.Param("project"), "delete")
+	})
+	v1.POST("/drama/projects/:project/restore", func(c *gin.Context) {
+		handler.DramaProjectLifecycle(c.Writer, c.Request, c.Param("project"), "restore")
+	})
+	v1.POST("/drama/projects/:project/purge", func(c *gin.Context) {
+		handler.DramaProjectLifecycle(c.Writer, c.Request, c.Param("project"), "purge")
+	})
+	v1.GET("/drama/projects/:project/asset-catalog", func(c *gin.Context) {
+		handler.DramaAssetCatalog(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.GET("/drama/projects/:project/domain/:domain", func(c *gin.Context) {
+		handler.DramaAssetDomainList(c.Writer, c.Request, c.Param("project"), c.Param("domain"))
+	})
+	v1.POST("/drama/projects/:project/domain/:domain", func(c *gin.Context) {
+		handler.DramaAssetDomainCreate(c.Writer, c.Request, c.Param("project"), c.Param("domain"))
+	})
+	v1.PATCH("/drama/projects/:project/domain/:domain/:name", func(c *gin.Context) {
+		handler.DramaAssetDomainUpdate(c.Writer, c.Request, c.Param("project"), c.Param("domain"), c.Param("name"))
+	})
+	v1.POST("/drama/projects/:project/domain/:domain/:name/delete", func(c *gin.Context) {
+		handler.DramaAssetDomainDelete(c.Writer, c.Request, c.Param("project"), c.Param("domain"), c.Param("name"))
+	})
+	v1.GET("/drama/projects/:project/characters/:character/voice-samples", func(c *gin.Context) {
+		handler.DramaCharacterVoiceSamples(c.Writer, c.Request, c.Param("project"), c.Param("character"))
+	})
+	v1.GET("/drama/projects/:project/narrator-voice", func(c *gin.Context) {
+		handler.DramaNarratorVoice(c.Writer, c.Request, c.Param("project"), false)
+	})
+	v1.GET("/drama/projects/:project/narrator-voice/sources", func(c *gin.Context) {
+		handler.DramaNarratorVoice(c.Writer, c.Request, c.Param("project"), true)
+	})
+	v1.POST("/drama/projects/:project/characters/:character/voice-samples/:slot/:operation", func(c *gin.Context) {
+		handler.DramaCharacterVoiceOperation(c.Writer, c.Request, c.Param("project"), c.Param("character"), c.Param("slot"), c.Param("operation"))
+	})
+	v1.POST("/drama/projects/:project/narrator-voice/:operation", func(c *gin.Context) {
+		handler.DramaNarratorVoiceOperation(c.Writer, c.Request, c.Param("project"), c.Param("operation"))
+	})
+	v1.GET("/drama/projects/:project/import-catalog", func(c *gin.Context) {
+		handler.DramaImportCatalog(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.POST("/drama/projects/:project/freezone/upload", func(c *gin.Context) {
+		handler.DramaCandidateUpload(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.POST("/drama/projects/:project/freezone/assets/identities", func(c *gin.Context) {
+		handler.DramaCreateIdentity(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.POST("/drama/projects/:project/freezone/push", func(c *gin.Context) {
+		handler.DramaPushCandidate(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.POST("/drama/projects/:project/freezone/impact", func(c *gin.Context) {
+		handler.DramaPushImpact(c.Writer, c.Request, c.Param("project"))
+	})
+	v1.GET("/drama/projects/:project/characters/:character/asset-history", func(c *gin.Context) {
+		handler.DramaAssetHistory(c.Writer, c.Request, c.Param("project"), c.Param("character"))
+	})
+	v1.POST("/drama/projects/:project/characters/:character/asset-history/restore", func(c *gin.Context) {
+		handler.DramaAssetHistory(c.Writer, c.Request, c.Param("project"), c.Param("character"))
+	})
+	v1.GET("/drama/media", gin.WrapF(handler.DramaMedia))
 	v1.GET("/user-data/image-history", gin.WrapF(handler.UserImageHistory))
 	v1.POST("/user-data/image-history", gin.WrapF(handler.SaveUserImageHistory))
 	v1.GET("/generation-logs/videos", gin.WrapF(handler.UserVideoGenerationLogs))
@@ -121,6 +195,19 @@ func New() *gin.Engine {
 	v1.GET("/user-data/assets", gin.WrapF(handler.UserAssetData))
 	v1.POST("/user-data/assets", gin.WrapF(handler.SaveUserAssetData))
 	api.GET("/proxy-image", gin.WrapF(handler.ProxyImage))
+	local := api.Group("/local")
+	local.GET("/canvas/projects", gin.WrapF(handler.LocalCanvasProjects))
+	local.POST("/canvas/projects", gin.WrapF(handler.SaveLocalCanvasProject))
+	local.POST("/canvas/projects/sync", gin.WrapF(handler.SyncLocalCanvasProjects))
+	local.POST("/canvas/projects/import", gin.WrapF(handler.ImportLocalCanvasProjects))
+	local.POST("/canvas/projects/delete", gin.WrapF(handler.DeleteLocalCanvasProjects))
+	local.GET("/assets", gin.WrapF(handler.LocalWorkspaceAssets))
+	local.POST("/assets/sync", gin.WrapF(handler.SyncLocalWorkspaceAssets))
+	local.POST("/assets/delete", gin.WrapF(handler.DeleteLocalWorkspaceAssets))
+	local.POST("/files", gin.WrapF(handler.UploadLocalFile))
+	local.DELETE("/files/:id", func(c *gin.Context) {
+		handler.DeleteLocalFile(c.Writer, c.Request, c.Param("id"))
+	})
 	api.GET("/prompts", middleware.OptionalAuth, gin.WrapF(handler.Prompts))
 	api.GET("/agent-skills", gin.WrapF(handler.AgentSkills))
 	api.GET("/agent-skills/:id/file", func(c *gin.Context) {

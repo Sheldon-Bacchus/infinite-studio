@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
 import { deleteAnonymousStorageFile, uploadAnonymousStorageFile } from "@/services/anonymous-storage";
 import { apiGet } from "@/services/api/request";
+import { deleteLocalWorkspaceFile, uploadLocalWorkspaceFile } from "@/services/api/local-workspace";
 import { useUserStore } from "@/stores/use-user-store";
 
 export type UploadedImage = {
@@ -191,12 +192,22 @@ export async function uploadImage(input: string | Blob, options: UploadImageOpti
         const serverUpload = await maybeUploadImageToServer(blob, options.token);
         if (serverUpload) return serverUpload;
     }
-    const storageKey = `image:${nanoid()}`;
-    await store.setItem(storageKey, blob);
-    const urlObj = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, urlObj);
-    const meta = await readImageMeta(urlObj);
-    return { url: urlObj, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
+    return uploadImageToLocalWorkspace(blob);
+}
+
+async function uploadImageToLocalWorkspace(blob: Blob): Promise<UploadedImage> {
+    const uploaded = await uploadLocalWorkspaceFile(blob, `image-${nanoid()}.${imageExtension(blob.type)}`);
+    const meta = await readImageMeta(uploaded.url);
+    if (uploaded.storageKey.startsWith("server:")) {
+        serverUrls.set(uploaded.storageKey.slice("server:".length), uploaded.url);
+    }
+    return {
+        ...uploaded,
+        width: meta.width,
+        height: meta.height,
+        mimeType: uploaded.mimeType || blob.type || meta.mimeType,
+        bytes: uploaded.bytes || blob.size,
+    };
 }
 
 export async function uploadRemoteImageToServer(url: string, filename: string): Promise<UploadedImage> {
@@ -549,6 +560,14 @@ export function toProviderPayload(provider: UserStorageProvider) {
 async function deleteServerImage(storageKey: string) {
     const id = storageKey.slice("server:".length);
     if (!id) return;
+    const { getStorageObjectInfo } = await import("@/services/api/storage");
+    const info = await getStorageObjectInfo(id).catch(() => null);
+    if (info?.providerId === "local" && info.createdBy === "local-workspace") {
+        await deleteLocalWorkspaceFile(id);
+        clearAutoSyncCache(storageKey);
+        serverUrls.delete(id);
+        return;
+    }
     const token = useUserStore.getState().token;
     serverUrls.delete(id);
     const provider = loadUserStorageProvider();

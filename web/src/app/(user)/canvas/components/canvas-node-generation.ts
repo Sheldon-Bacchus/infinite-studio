@@ -88,7 +88,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         if (input && !advanced.textNodeIds.has(input.nodeId) && !advanced.referenceNodeIds.has(input.nodeId)) {
             let label = labelByNodeId.get(input.nodeId);
             if (!label) {
-                label = generationLabel(input.type, counts[input.type]++);
+                label = generationLabel(input.type, counts[input.type]++, prompt);
                 labelByNodeId.set(input.nodeId, label);
                 if (input.type === "text") textBlocks.push(`【${label}】\n${input.text || ""}`);
                 else selectedInputs.push(input);
@@ -236,7 +236,10 @@ function readNodeTextInput(node: CanvasNodeData) {
     return node.metadata?.prompt || "";
 }
 
-function generationLabel(type: NodeGenerationInput["type"], index: number) {
+function generationLabel(type: NodeGenerationInput["type"], index: number, prompt: string) {
+    if (type === "image" && /<Picture\s+\d+>/.test(prompt)) return `<Picture ${index + 1}>`;
+    if (type === "video" && /<Video\s+\d+>/.test(prompt)) return `<Video ${index + 1}>`;
+    if (type === "audio" && /<Audio\s+\d+>/.test(prompt)) return `<Audio ${index + 1}>`;
     if (type === "image") return imageReferenceLabel(index);
     if (type === "video") return seedanceReferenceLabel("video", index);
     if (type === "audio") return seedanceReferenceLabel("audio", index);

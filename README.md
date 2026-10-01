@@ -1,5 +1,26 @@
 # 无限片场 · Infinite Studio
 
+## Windows 本地快速启动
+
+无限片场仍按自身运行配置使用本地端口、SQLite 和媒体目录；无限画布与 MCP 的来源快照位于本仓库的 `implementations/`。目录、来源版本和许可证见 [`IMPLEMENTATIONS.md`](IMPLEMENTATIONS.md)。
+
+1. 安装 Go、Node.js 和 Bun。
+2. 在本仓库根目录运行：
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
+   ```
+
+3. 浏览器会打开虾料工作区：`http://127.0.0.1:43862/xiaji`。API 为 `http://127.0.0.1:8086`。
+4. 本地数据库与媒体位于 `data/`，属于机器本地数据，不纳入 GitHub 仓库。
+5. 关闭浏览器后服务会在后台待机。需要停止服务时运行：
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1 -Action Stop
+   ```
+
+完整逐步说明见 [`docs/local-quick-start.md`](docs/local-quick-start.md)。此启动器只启动无限片场；MCP、Agent 与 Bridge 的来源和启动说明见 [`IMPLEMENTATIONS.md`](IMPLEMENTATIONS.md)。
+
 <p align="center"><strong>把剧本、角色场景、分集镜头和画布创作，放进同一个影视项目。</strong></p>
 
 无限片场以 Infinite Canvas 原生画布为基础，把影视项目的前期材料、资产和镜头整理放进同一工作台。创作者可以沿项目查看各阶段的输入、产物和审核状态，再按需把已保存内容导入对应画布。
@@ -19,12 +40,13 @@
 
 ## 当前状态
 
-当前公开分支仍处于项目整合开发阶段，尚未包含工作区中的虾料、虾塘、虾镜统一项目实现。功能同步、真实浏览器端到端验收、Network 检查和来源页面截图对照尚未完成；未验证的行为不作为已发布能力承诺。
+本仓库以无限片场为主项目，并收录无限画布与社区 MCP 的完整源码快照及文档。各快照保留各自的运行方式和许可证；工作区历史测试记录、已验证项目与仍需手动验收的内容见 [`docs/progress/pending-test.md`](docs/progress/pending-test.md) 和 [`IMPLEMENTATIONS.md`](IMPLEMENTATIONS.md)。本次整合没有运行构建或测试。
 
-本项目不连接 DramaClaw 服务。视频生成不在当前实施范围内。
+本项目不连接 DramaClaw 服务。
 
 ## 代码来源
 
 - 本项目基于 [Infinite Canvas](https://github.com/tigerowo/infinite-canvas) 继续开发，保留上游来源与版权信息。
-- 虾塘部分前端代码计划复用并适配自 [DramaClaw](https://github.com/dramaclaw/dramaclaw)。来源文件、调用映射和许可证清单将在对应代码同步时一并公开。
+- Infinite Canvas 与社区 MCP 的源码快照、提交来源和许可证分别记录在 [`IMPLEMENTATIONS.md`](IMPLEMENTATIONS.md)；不会把不同许可证合并成一个声明。
+- 虾塘部分前端代码复用并适配自 [DramaClaw](https://github.com/dramaclaw/dramaclaw)；来源版本、文件映射和许可证记录见 [`docs/superpowers/artifacts/dramaclaw-local-creative-suite/`](docs/superpowers/artifacts/dramaclaw-local-creative-suite/)。
 - 上游版权、SPDX 标识和各来源文件的许可证声明按文件保留。基础仓库的许可证见 [LICENSE](LICENSE)；本说明不代表不同许可证已自动兼容。

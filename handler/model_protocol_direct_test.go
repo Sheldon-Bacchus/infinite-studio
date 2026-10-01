@@ -170,6 +170,28 @@ func TestModelProtocolDirectSecurityContract(t *testing.T) {
 	}
 }
 
+func TestAutoDLH3InlineReferenceEligibility(t *testing.T) {
+	tests := []struct {
+		name, model, endpoint string
+		kinds                 map[string]bool
+		want                  bool
+	}{
+		{"H3 images and audio", "minimax_h3_image_audio_to_video_v2_15s", "/videos", map[string]bool{"image": true, "audio": true}, true},
+		{"H3 image only", "minimax_h3_image_audio_to_video_v2_15s", "/videos", map[string]bool{"image": true}, true},
+		{"H3 audio only", "minimax_h3_image_audio_to_video_v2_15s", "/videos", map[string]bool{"audio": true}, true},
+		{"H3 video input", "minimax_h3_image_audio_to_video_v2_15s", "/videos", map[string]bool{"video": true}, false},
+		{"other workflow", "minimax_h3_image_audio_to_video_v2", "/videos", map[string]bool{"image": true}, false},
+		{"wrong endpoint", "minimax_h3_image_audio_to_video_v2_15s", "/audio/speech", map[string]bool{"audio": true}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := allowsAutoDLH3InlineReferences(test.model, test.endpoint, test.kinds); got != test.want {
+				t.Fatalf("allowsAutoDLH3InlineReferences() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestModelProtocolDirectHTTPEnvelope(t *testing.T) {
 	blockProtocolNetwork(t)
 	tests := []struct {

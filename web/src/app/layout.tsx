@@ -7,8 +7,8 @@ import "./globals.css";
 import React from "react";
 
 export const metadata: Metadata = {
-    title: "无限画布",
-    description: "一个无限画布创作工具",
+    title: "无限片场 · Infinite Studio",
+    description: "把剧本、角色场景、分集镜头和画布创作，放进同一个影视项目。",
 };
 
 export default function RootLayout({

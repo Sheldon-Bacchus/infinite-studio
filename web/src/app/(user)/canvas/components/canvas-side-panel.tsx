@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { fetchAssetLibrary, type AssetLibraryItem } from "@/services/api/assets";
 import { fetchPrompts, type Prompt } from "@/services/api/prompts";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { visibleLocalStudioAssets } from "@/features/xiaji/local-studio-asset-visibility";
 import { useThemeStore } from "@/stores/use-theme-store";
 
 import { CanvasNodeType, type CanvasNodeData } from "../types";
@@ -293,7 +294,8 @@ function AssetSourceTab({ label, active, theme, onClick }: { label: string; acti
 }
 
 function MyAssetsTab({ theme, onAdd, onAssetDragStart, onAssetDragEnd }: { theme: CanvasTheme; onAdd: () => void; onAssetDragStart: (payload: InsertAssetPayload) => void; onAssetDragEnd: () => void }) {
-    const assets = useAssetStore((state) => state.assets);
+    const storedAssets = useAssetStore((state) => state.assets);
+    const assets = useMemo(() => visibleLocalStudioAssets(storedAssets), [storedAssets]);
     const [keyword, setKeyword] = useState("");
     const [type, setType] = useState("");
     const [category, setCategory] = useState("");

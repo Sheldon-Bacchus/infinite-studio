@@ -110,9 +110,12 @@ func prepareDirectAIRequest(input directAIRequestInput) (directAIRequestPlan, er
 	}
 	kinds := map[string]bool{}
 	collectDirectAIReferenceKinds(translated, kinds)
-	uploads, err := directAIUploads(provider, channel, kinds)
-	if err != nil {
-		return directAIRequestPlan{}, err
+	var uploads map[string]directAIUpload
+	if provider != service.ModelChannelProtocolAutoDL || !allowsAutoDLH3InlineReferences(input.Model, input.Endpoint, kinds) {
+		uploads, err = directAIUploads(provider, channel, kinds)
+		if err != nil {
+			return directAIRequestPlan{}, err
+		}
 	}
 
 	return directAIRequestPlan{
@@ -122,6 +125,18 @@ func prepareDirectAIRequest(input directAIRequestInput) (directAIRequestPlan, er
 		Body:        translated,
 		Uploads:     uploads,
 	}, nil
+}
+
+func allowsAutoDLH3InlineReferences(modelName, endpoint string, kinds map[string]bool) bool {
+	if modelName != "minimax_h3_image_audio_to_video_v2_15s" || endpoint != "/videos" || len(kinds) == 0 {
+		return false
+	}
+	for kind := range kinds {
+		if kind != "image" && kind != "audio" {
+			return false
+		}
+	}
+	return true
 }
 
 func isDirectAIEndpoint(endpoint string) bool {

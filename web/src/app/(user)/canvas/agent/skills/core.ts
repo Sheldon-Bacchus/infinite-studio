@@ -124,6 +124,10 @@ sourceNodeIds 同时承担两件事：
 - create_connection、delete_connection：创建或删除真实连线。
 - create_group：把至少两个未分组的普通节点放入真实 group 节点。
 - arrange_nodes：使用项目现有算法整理指定节点或顶层画布。
+- list_local_assets：分页查询已加载本地素材库的真实 assetId 和安全元数据；先用它确认 ID，再导入。
+- import_assets_to_canvas：按用户提供的素材库真实 ID 导入普通素材节点；不要求 SHOT 分组，不移动原素材、不自动连线，也不提交媒体生成。
+- create_config_draft：为已有同组提示词创建 idle 配置草稿，保留原提示词芯片和其他配置。
+- bind_config_media：把同组真实本地图片/音频节点按顺序写成配置 composer 的 @[node:<nodeId>] 芯片。配置芯片是实际素材绑定；普通连线和 <Picture N> 文本标签都不等于绑定。
 
 媒体工具：
 

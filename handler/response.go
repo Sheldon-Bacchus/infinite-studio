@@ -2,11 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/tigerowo/infinite-canvas/model"
+	"github.com/tigerowo/infinite-canvas/repository"
 )
 
 type response struct {
@@ -35,6 +37,10 @@ func writeJSONWithStatus(w http.ResponseWriter, status int, value any) {
 
 func FailError(w http.ResponseWriter, err error) {
 	log.Printf("request failed: %v", err)
+	if errors.Is(err, repository.ErrLocalCanvasProjectConflict) {
+		Fail(w, repository.ErrLocalCanvasProjectConflict.Error())
+		return
+	}
 	if safe, ok := err.(interface{ SafeMessage() string }); ok {
 		Fail(w, safe.SafeMessage())
 		return

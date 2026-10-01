@@ -1,11 +1,11 @@
 {
     "name": "@tigerowo/canvas-agent",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "type": "module",
     "bin": {
         "canvas-agent": "index.mjs"
     },
-    "files": ["index.mjs", "codex.mjs"],
+    "files": ["index.mjs", "codex.mjs", "agent-runtime.json", "mcp-session.mjs", "static-tools.json", "local-canvas-import.mjs"],
     "publishConfig": {
         "access": "public"
     },
@@ -16,7 +16,8 @@
     },
     "scripts": {
         "start": "node index.mjs",
-        "codex": "codex"
+        "codex": "codex",
+        "test": "node --test mcp-session.test.mjs mcp-runtime.integration.test.mjs bridge-connections.integration.test.mjs"
     },
     "engines": {
         "node": ">=22"
@@ -25,6 +26,7 @@
         "@modelcontextprotocol/sdk": "^1.12.1",
         "@openai/codex": "0.156.1",
         "express": "^5.1.0",
+        "fflate": "^0.8.3",
         "open": "^11.0.1"
     }
 }

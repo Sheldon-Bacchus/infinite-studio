@@ -6,6 +6,7 @@ export type AutoDLInputRule = {
     default?: string | number;
     min?: number;
     max?: number;
+    options?: { label: string }[];
 };
 
 export type AutoDLWorkflow = {

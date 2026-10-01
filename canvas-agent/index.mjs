@@ -9,8 +9,22 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { CodexClient } from "./codex.mjs";
+import { createCanvasMcpController, listConnectedCanvases } from "./mcp-session.mjs";
+import { importLocalCanvasZip } from "./local-canvas-import.mjs";
 
 const entry = fileURLToPath(import.meta.url);
+const workspace = dirname(entry);
+const packageManifest = JSON.parse(readFileSync(resolve(workspace, "package.json"), "utf8"));
+const staticTools = JSON.parse(readFileSync(resolve(workspace, "static-tools.json"), "utf8"));
+if (!Array.isArray(staticTools)) throw new Error("static-tools.json 必须是 MCP 工具定义数组");
+const runtimeManifestPath = resolve(workspace, "agent-runtime.json");
+const runtimeManifest = existsSync(runtimeManifestPath)
+    ? JSON.parse(readFileSync(runtimeManifestPath, "utf8"))
+    : { agentRuntime: { id: "tigerowo-infinite-canvas-agent", mcpServerName: "infinite-canvas", defaultPort: 3210 } };
+const agentRuntime = runtimeManifest.agentRuntime || {};
+const runtimeId = typeof agentRuntime.id === "string" ? agentRuntime.id : "tigerowo-infinite-canvas-agent";
+const mcpServerName = typeof agentRuntime.mcpServerName === "string" ? agentRuntime.mcpServerName : "infinite-canvas";
+const defaultPort = Number(agentRuntime.defaultPort) || 3210;
 const configPath = resolve(homedir(), ".infinite-canvas", "codex-agent.json");
 const readConfig = () => existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : null;
 const savedConfig = readConfig();
@@ -19,10 +33,9 @@ const mode = process.argv[2];
 if (!savedConfig && ["config", "open"].includes(mode)) throw new Error("请先启动本地 Canvas Agent 服务");
 const token = process.env.CANVAS_AGENT_TOKEN || savedConfig?.token || (mode === "mcp" ? "" : randomBytes(32).toString("hex"));
 if (mode !== "mcp" && (typeof token !== "string" || token.length < 32)) throw new Error("本地连接 Token 至少需要 32 位字符");
-const port = Number(process.env.CANVAS_AGENT_PORT || savedConfig?.port || 3210);
+const port = Number(process.env.CANVAS_AGENT_PORT || savedConfig?.port || defaultPort);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("本地服务端口无效");
 const endpoint = "http://127.0.0.1:" + port;
-const workspace = dirname(entry);
 const origins = new Set(process.env.CANVAS_AGENT_ORIGINS?.split(",").map((value) => value.trim()).filter(Boolean) || savedConfig?.origins || []);
 const sessions = new Map();
 const methods = new Set(["model/list", "thread/start", "thread/resume", "thread/archive", "turn/start", "turn/interrupt", "bridge/stop"]);
@@ -47,7 +60,7 @@ async function openCanvas() {
 
 function saveConfig() {
     mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify({ url: endpoint, port, token, serviceId, origins: [...origins] }, null, 2) + "\n", { mode: 0o600 });
+    writeFileSync(configPath, JSON.stringify({ url: endpoint, port, token, serviceId, runtimeId, origins: [...origins] }, null, 2) + "\n", { mode: 0o600 });
 }
 
 function findSession(clientId) {
@@ -124,7 +137,7 @@ async function runRpc(session, method, params = {}, generation) {
             cwd: workspace,
             approvalPolicy: "on-request",
             sandbox: "workspace-write",
-            config: { mcp_servers: { "infinite-canvas": {
+            config: { mcp_servers: { [mcpServerName]: {
                 command: process.execPath,
                 args: [entry, "mcp"],
                 default_tools_approval_mode: "approve",
@@ -149,45 +162,65 @@ async function startMcp() {
         const requestToken = process.env.CANVAS_AGENT_TOKEN || config?.token;
         if (!requestToken) throw new Error("请先启动本地 Canvas Agent 服务");
         const url = "http://127.0.0.1:" + (process.env.CANVAS_AGENT_PORT || config?.port || 3210);
-        const response = await fetch(url + path, {
-            method: body ? "POST" : "GET",
-            headers: { "Content-Type": "application/json", "x-canvas-agent-token": requestToken },
-            body: body ? JSON.stringify({ ...body, clientId, source, generation }) : undefined,
-            signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(95000)]) : AbortSignal.timeout(95000),
-        });
-        const value = await response.json();
+        const requestClientId = body && Object.hasOwn(body, "clientId") ? body.clientId : clientId;
+        let response;
+        try {
+            response = await fetch(url + path, {
+                method: body ? "POST" : "GET",
+                headers: { "Content-Type": "application/json", "x-canvas-agent-token": requestToken },
+                body: body ? JSON.stringify({ ...body, clientId: requestClientId, source, generation }) : undefined,
+                signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(95000)]) : AbortSignal.timeout(95000),
+            });
+        } catch (error) {
+            const causeCode = error && typeof error === "object" && "cause" in error && error.cause && typeof error.cause === "object" && "code" in error.cause
+                ? String(error.cause.code)
+                : error instanceof Error ? error.message : "网络请求失败";
+            throw new Error(`无法连接本地 Canvas Agent ${url}${path}（${causeCode}）。请确认 MCP 与 Agent 使用同一端口并运行在同一台电脑。`);
+        }
+        let value;
+        try {
+            value = await response.json();
+        } catch {
+            throw new Error(`Canvas Agent ${url}${path} 未返回 JSON（HTTP ${response.status}）；请确认运行的是与 MCP 配套的 Agent 版本。`);
+        }
         if (!response.ok) throw new Error(value.error || "画布连接失败");
         return value;
     }
-    const server = new Server({ name: "infinite-canvas", version: "0.1.0" }, { capabilities: { tools: { listChanged: true } } });
-    const toolsPath = "/tools?clientId=" + encodeURIComponent(clientId);
+    const server = new Server({ name: mcpServerName, version: packageManifest.version }, { capabilities: { tools: { listChanged: true } } });
+    const controller = createCanvasMcpController({
+        pinnedClientId: clientId,
+        staticTools,
+        getConnections: async () => (await request("/connections")).connections,
+        getTools: async (selectedClientId) => {
+            const tools = await request("/tools?clientId=" + encodeURIComponent(selectedClientId));
+            return source === "codex" ? tools : tools.filter(({ name }) => name !== "set_agent_state" && name !== "read_skill_file");
+        },
+        callCanvasTool: ({ clientId: selectedClientId, name, arguments: args }, signal) =>
+            request("/tools/call", { clientId: selectedClientId, name, arguments: args }, signal),
+        notifyToolsChanged: () => server.notification({ method: "notifications/tools/list_changed" }),
+    });
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-        try {
-            const tools = await request(toolsPath);
-            return { tools: source === "codex" ? tools : tools.filter(({ name }) => name !== "set_agent_state" && name !== "read_skill_file") };
-        } catch { return { tools: [] }; }
+        return { tools: await controller.listTools() };
     });
     server.setRequestHandler(CallToolRequestSchema, async ({ params }, { signal }) => {
         try {
-            const result = await request("/tools/call", { name: params.name, arguments: params.arguments || {} }, signal);
-            return { isError: result?.ok === false, content: [{ type: "text", text: JSON.stringify(result) }] };
+            const result = params.name === "import_local_canvas_zip"
+                ? await importLocalCanvasZip(params.arguments || {}, signal)
+                : await controller.call(params.name, params.arguments || {}, signal);
+            const isSelectionTool = params.name === "list_connected_canvases" || params.name === "select_canvas";
+            return { isError: !isSelectionTool && result?.ok === false, content: [{ type: "text", text: JSON.stringify(result) }] };
         } catch (error) {
             return { isError: true, content: [{ type: "text", text: error.message }] };
         }
     });
-    let retry;
     let closed = false;
-    async function announceTools() {
-        try {
-            const tools = await request(toolsPath);
-            if (!tools.length) throw new Error("等待画布连接");
-            if (!closed) await server.notification({ method: "notifications/tools/list_changed" });
-        } catch {
-            if (!closed) retry = setTimeout(announceTools, 2000);
-        }
-    }
-    server.oninitialized = () => { void announceTools(); };
-    server.onclose = () => { closed = true; clearTimeout(retry); };
+    let schemaPoll;
+    server.oninitialized = () => {
+        void controller.refreshTools();
+        schemaPoll = setInterval(() => { if (!closed) void controller.refreshTools(); }, 1000);
+        schemaPoll.unref?.();
+    };
+    server.onclose = () => { closed = true; clearInterval(schemaPoll); };
     await server.connect(new StdioServerTransport());
 }
 
@@ -205,7 +238,7 @@ function startHttp() {
             res.setHeader("Access-Control-Allow-Private-Network", "true");
         }
         if (req.method === "OPTIONS") return res.sendStatus(204);
-        if (req.method === "GET" && req.path === "/config") return res.json({ url: endpoint, hasToken: Boolean(token) });
+        if (req.method === "GET" && req.path === "/config") return res.json({ url: endpoint, hasToken: Boolean(token), runtimeId, mcpServerName });
         const credential = req.path === "/events" ? req.query.token : req.headers["x-canvas-agent-token"];
         if (credential !== token) return res.status(401).json({ error: "Token 不正确" });
         if (origin && !origins.has(origin)) {
@@ -215,6 +248,7 @@ function startHttp() {
         next();
     });
     app.use(express.json({ limit: "20mb" }));
+    app.get("/connections", (req, res) => res.json({ connections: listConnectedCanvases(sessions) }));
     app.post("/connect", (req, res) => {
         const { clientId, canvasId, tools } = req.body;
         if (typeof clientId !== "string" || !clientId || typeof canvasId !== "string" || !canvasId || !Array.isArray(tools)) {

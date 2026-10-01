@@ -1,10 +1,15 @@
-import { FileText, ImagePlus, Images, Maximize2, Music2, Video } from "lucide-react";
+import { Clapperboard, FileText, ImagePlus, Images, Maximize2, Music2, Video } from "lucide-react";
 
 export const navigationTools = [
     {
         slug: "canvas",
         label: "我的画布",
         icon: Maximize2,
+    },
+    {
+        slug: "xiaji",
+        label: "无限虾",
+        icon: Clapperboard,
     },
     {
         slug: "image",

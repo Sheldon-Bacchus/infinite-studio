@@ -40,10 +40,12 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { CANVAS_AGENT_RUNTIME } from "../agent/agent-runtime-config";
 import { createCanvasAgentState, runCanvasAgent } from "../agent/canvas-agent-runtime";
 import { useCodexAgent } from "../agent/use-codex-agent";
 import type { CanvasAgentContext } from "../agent/canvas-agent-context";
 import type { CanvasAgentAction, CanvasAgentToolResult } from "../agent/canvas-agent-tools";
+import { CANVAS_AGENT_CODEX_ONLY_ACTIONS } from "../agent/canvas-agent-tools";
 import {
     MAX_CANVAS_AGENT_SKILLS,
     CanvasNodeType,
@@ -108,6 +110,27 @@ type PendingDeleteConfirmation = {
     resolve: (confirmed: boolean) => void;
 };
 
+type XiajiPreviewApprovalSnapshot = {
+    canvasId: string;
+    result: CanvasAgentToolResult;
+};
+
+type XiajiImportApprovalSnapshot = {
+    canvasId: string;
+    projectionId: string;
+    manifestDigest: string;
+    nodeIdsBySourceAssetId: Record<string, string>;
+    result: CanvasAgentToolResult;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 type PanelCardAction = { label: string; onClick: () => void | Promise<void>; danger?: boolean };
 type CodexConfirmation = { id: string; title: string; content: ReactNode; actions: PanelCardAction[] };
 
@@ -143,6 +166,8 @@ export function CanvasAssistantPanel({
     const abortRef = useRef<AbortController | null>(null);
     const consumedInitialRequestRef = useRef<typeof initialRequest>(null);
     const pendingDeleteRef = useRef<PendingDeleteConfirmation | null>(null);
+    const lastXiajiPreviewRef = useRef<XiajiPreviewApprovalSnapshot | null>(null);
+    const lastXiajiImportRef = useRef<XiajiImportApprovalSnapshot | null>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
     const consumedReferenceNodeClickVersionRef = useRef(0);
     const [view, setView] = useState<"chat" | "history" | "connect">("chat");
@@ -289,6 +314,9 @@ export function CanvasAssistantPanel({
 
     const executeCanvasTool = async (action: CanvasAgentAction, messageReferenceNodeIds: string[], activeSkills: CanvasAgentSkillSelection[], provider: "api" | "codex", signal: AbortSignal): Promise<CanvasAgentToolResult> => {
         signal.throwIfAborted();
+        if (provider === "api" && CANVAS_AGENT_CODEX_ONLY_ACTIONS.has(action.name)) {
+            return { ok: false, code: "codex_only_tool", message: "虾料/虾镜项目上下文与导入工具只允许连接的 Codex 使用；用户配置的 API 模型不会读取或导入项目内容" };
+        }
         if (action.name === "read_skill_file") {
             const skillId = typeof action.arguments.skillId === "string" ? action.arguments.skillId : "";
             const filePath = typeof action.arguments.path === "string" ? action.arguments.path : "";
@@ -300,6 +328,109 @@ export function CanvasAssistantPanel({
             } catch (error) {
                 return { ok: false, code: "skill_file_not_found", message: error instanceof Error ? error.message : "Skill 文件读取失败" };
             }
+        }
+        if (action.name === "preview_xiaji_episode_context") {
+            const result = await onExecuteAction(action, messageReferenceNodeIds);
+            if (result.ok) lastXiajiPreviewRef.current = { canvasId, result };
+            return result;
+        }
+        if (action.name === "import_xiaji_episode_context") {
+            const preview = lastXiajiPreviewRef.current;
+            const args = action.arguments;
+            const projectAssetId = typeof args.projectAssetId === "string" ? args.projectAssetId : "";
+            const episodeAssetId = typeof args.episodeAssetId === "string" ? args.episodeAssetId : "";
+            const sourceDigest = typeof args.sourceDigest === "string" ? args.sourceDigest : "";
+            const mode = typeof args.mode === "string" ? args.mode : "";
+            const sourceAssetIds = stringList(args.sourceAssetIds);
+            if (!preview || preview.canvasId !== canvasId || preview.result.projectAssetId !== projectAssetId
+                || preview.result.episodeAssetId !== episodeAssetId || preview.result.sourceDigest !== sourceDigest
+                || !Array.isArray(preview.result.issues) || preview.result.issues.length > 0 || !sourceAssetIds.length) {
+                return { ok: false, code: "preview_review_required", message: "请先在当前画布会话中生成并审阅无阻断项的最新虾镜预览；没有执行导入" };
+            }
+            const approvedSet = new Set(sourceAssetIds);
+            const previewReferences = Array.isArray(preview.result.references) ? preview.result.references.filter(isRecord) : [];
+            const previewBeats = Array.isArray(preview.result.beats) ? preview.result.beats.filter(isRecord) : [];
+            const review = {
+                project: preview.result.project,
+                episode: preview.result.episode,
+                sourceDigest,
+                mode,
+                approvedSourceAssetIds: sourceAssetIds,
+                approvedScript: isRecord(preview.result.script) && approvedSet.has(String(preview.result.script.assetId)) ? preview.result.script : null,
+                approvedBeats: previewBeats.filter((beat) => approvedSet.has(String(beat.assetId))),
+                approvedReferences: previewReferences.filter((asset) => approvedSet.has(String(asset.assetId))).map((asset) => ({
+                    ...asset,
+                    selectedMedia: Array.isArray(asset.selectedMedia) ? asset.selectedMedia.filter((media) => isRecord(media) && approvedSet.has(String(media.assetId))) : [],
+                })),
+                excludedSourceAssetIds: stringList(preview.result.importableSourceAssetIds).filter((assetId) => !approvedSet.has(assetId)),
+                plannedEdges: Array.isArray(preview.result.plannedEdges) ? preview.result.plannedEdges.filter((edge) => isRecord(edge)
+                    && approvedSet.has(String(edge.fromAssetId)) && approvedSet.has(String(edge.toAssetId))) : [],
+                issues: preview.result.issues,
+                skippedItems: preview.result.skippedItems,
+            };
+            const confirmed = await confirmCodex(
+                "确认把以下虾镜内容导入当前虾画？",
+                <pre className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(review, null, 2)}</pre>,
+                signal,
+                mode === "complete" ? "确认完整导入" : "确认按选定项导入",
+                "返回修改",
+            );
+            if (!confirmed) return { ok: false, code: "import_cancelled", message: "用户取消导入；画布没有写入" };
+            const result = await onExecuteAction(action, messageReferenceNodeIds);
+            if (result.ok && result.readbackConfirmed === true && typeof result.projectionId === "string"
+                && typeof result.manifestDigest === "string" && isRecord(result.nodeIdsBySourceAssetId)) {
+                const nodeIdsBySourceAssetId = Object.fromEntries(Object.entries(result.nodeIdsBySourceAssetId).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+                lastXiajiImportRef.current = { canvasId, projectionId: result.projectionId, manifestDigest: result.manifestDigest, nodeIdsBySourceAssetId, result };
+            }
+            return result;
+        }
+        if (action.name === "arrange_xiaji_episode_canvas") {
+            const args = action.arguments;
+            const projectionId = typeof args.projectionId === "string" ? args.projectionId : "";
+            const manifestDigest = typeof args.manifestDigest === "string" ? args.manifestDigest : "";
+            const approvedNodeIds = stringList(args.approvedNodeIds);
+            const imported = lastXiajiImportRef.current;
+            const projectionNodes = nodes.filter((node) => node.metadata?.projectionId === projectionId
+                && ["script", "beat", "asset"].includes(node.metadata?.projectionRole || ""));
+            const anchor = projectionNodes.find((node) => node.metadata?.projectionRole === "script");
+            const savedNodeIds = imported?.canvasId === canvasId && imported.projectionId === projectionId
+                ? Object.values(imported.nodeIdsBySourceAssetId)
+                : projectionNodes.map((node) => node.id);
+            const expectedManifestDigest = imported?.canvasId === canvasId && imported.projectionId === projectionId
+                ? imported.manifestDigest
+                : anchor?.metadata?.projectionManifestDigest;
+            if (!projectionId || !manifestDigest || !approvedNodeIds.length || !expectedManifestDigest
+                || expectedManifestDigest !== manifestDigest || JSON.stringify([...approvedNodeIds].sort()) !== JSON.stringify([...savedNodeIds].sort())) {
+                return { ok: false, code: "arrangement_review_required", message: "请先检查当前画布中已保存的完整投影节点与清单摘要；本次没有排版或连线" };
+            }
+            const preview = lastXiajiPreviewRef.current?.canvasId === canvasId ? lastXiajiPreviewRef.current.result : null;
+            const sourceTitleById = new Map<string, string>();
+            if (isRecord(preview?.script) && typeof preview.script.assetId === "string" && typeof preview.script.title === "string") sourceTitleById.set(preview.script.assetId, preview.script.title);
+            for (const beat of Array.isArray(preview?.beats) ? preview.beats.filter(isRecord) : []) {
+                if (typeof beat.assetId === "string" && typeof beat.title === "string") sourceTitleById.set(beat.assetId, beat.title);
+            }
+            for (const reference of Array.isArray(preview?.references) ? preview.references.filter(isRecord) : []) {
+                if (typeof reference.assetId === "string" && typeof reference.title === "string") sourceTitleById.set(reference.assetId, reference.title);
+                if (typeof reference.title === "string" && Array.isArray(reference.selectedMedia)) {
+                    for (const media of reference.selectedMedia.filter(isRecord)) if (typeof media.assetId === "string") sourceTitleById.set(media.assetId, `${reference.title} · ${String(media.slot || "媒体版本")}`);
+                }
+            }
+            const nodesById = new Map(projectionNodes.map((node) => [node.id, node]));
+            const sourceByNodeId = new Map(Object.entries(imported?.nodeIdsBySourceAssetId || {}).map(([sourceId, nodeId]) => [nodeId, sourceId]));
+            const reviewNodes = approvedNodeIds.map((nodeId) => {
+                const node = nodesById.get(nodeId);
+                const sourceId = node?.metadata?.sourceEntityId || sourceByNodeId.get(nodeId);
+                return { nodeId, title: node?.title || (sourceId ? sourceTitleById.get(sourceId) : undefined) || "来源节点", role: node?.metadata?.projectionRole, sourceAssetId: sourceId };
+            });
+            const confirmed = await confirmCodex(
+                "确认统一排版、分组并连接以下虾镜节点？",
+                <pre className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify({ projectionId, manifestDigest, approvedNodeIds, nodes: reviewNodes, expectedRelationships: preview?.plannedEdges || [] }, null, 2)}</pre>,
+                signal,
+                "确认排版并连线",
+                "返回画布检查",
+            );
+            if (!confirmed) return { ok: false, code: "arrangement_cancelled", message: "用户取消排版；画布节点和连线保持原状" };
+            return onExecuteAction(action, messageReferenceNodeIds);
         }
         if (action.name !== "delete_node") return onExecuteAction(action, messageReferenceNodeIds);
         const nodeId = typeof action.arguments.nodeId === "string" ? action.arguments.nodeId : "";
@@ -595,6 +726,9 @@ export function CanvasAssistantPanel({
                     <div className="flex items-center gap-2 text-sm font-medium">
                         <Bot className="size-4" />
                         {view === "history" ? "历史记录" : mode === "codex" ? "Codex" : "创作 Agent"}
+                        <Tooltip title={mode === "codex" ? `MCP 运行时：${CANVAS_AGENT_RUNTIME.agentRuntime.packageName} · ${CANVAS_AGENT_RUNTIME.agentRuntime.mcpServerName}` : `应用主线：${CANVAS_AGENT_RUNTIME.application.repository}`}>
+                            <span className="max-w-[150px] truncate rounded border px-1.5 py-0.5 text-[10px] font-normal" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>{mode === "codex" ? `MCP：${CANVAS_AGENT_RUNTIME.agentRuntime.mcpServerName}` : "主线：当前仓库"}</span>
+                        </Tooltip>
                         <Tooltip title={mode === "codex" ? "切换回创作 Agent" : "切换到 Codex"}>
                             <Button size="small" className="!h-7 !rounded-md !px-2.5 !shadow-none" style={{ font: "inherit", color: theme.node.text, background: "transparent", borderColor: theme.node.stroke }} icon={<ArrowLeftRight className="size-3.5" />} disabled={isRunning} onClick={switchMode}>{mode === "codex" ? "创作 Agent" : "Codex"}</Button>
                         </Tooltip>
@@ -665,13 +799,13 @@ export function CanvasAssistantPanel({
                     )}
                 </div>
 
-                {(mode === "api" ? pendingDelete : codexConfirmations.length) ? (
+                {(pendingDelete || codexConfirmations.length > 0) ? (
                     <div className="thin-scrollbar max-h-[50%] shrink-0 space-y-2 overflow-y-auto pb-2">
                         {mode === "api" && pendingDelete ? <AssistantPanelCard title={`删除「${pendingDelete.title}」？`} actions={[
                             { label: "取消", onClick: () => settleDeleteConfirmation(false) },
                             { label: "确认删除", danger: true, onClick: () => settleDeleteConfirmation(true) },
                         ]}><div className="text-xs opacity-55">相关连线和任务记录将按现有逻辑清理</div></AssistantPanelCard> : null}
-                        {mode === "codex" ? codexConfirmations.map((confirmation) => <AssistantPanelCard key={confirmation.id} title={confirmation.title} actions={confirmation.actions}>{confirmation.content}</AssistantPanelCard>) : null}
+                        {codexConfirmations.map((confirmation) => <AssistantPanelCard key={confirmation.id} title={confirmation.title} actions={confirmation.actions}>{confirmation.content}</AssistantPanelCard>)}
                     </div>
                 ) : null}
                 {view === "chat" && !showCodexConnection ? (

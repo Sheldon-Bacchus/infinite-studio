@@ -31,39 +31,69 @@ type defaultAgentSkillPackage struct {
 	Files       []model.AgentSkillFile
 }
 
-// EnsureDefaultAgentSkills 只在数据库首次初始化时导入 service/skills 中的默认 Skill 包。
+// EnsureDefaultAgentSkills 在首次初始化时导入全部默认 Skill，后续只补齐新增的默认包，不覆盖用户已经修改过的系统 Skill。
 func EnsureDefaultAgentSkills() error {
 	initialized, err := repository.AgentSkillsInitialized()
-	if err != nil || initialized {
+	if err != nil {
 		return err
 	}
 	existing, err := repository.ListSystemAgentSkills()
 	if err != nil {
 		return err
 	}
-	current := now()
-	if len(existing) > 0 {
-		return repository.MarkAgentSkillsInitialized(current)
-	}
 	packages, err := readDefaultAgentSkillPackages()
 	if err != nil {
 		return err
 	}
-	items := make([]model.AgentSkill, 0, len(packages))
-	fileGroups := make([][]model.AgentSkillFile, 0, len(packages))
-	for index, item := range packages {
+	current := now()
+	if !initialized && len(existing) == 0 {
+		items := make([]model.AgentSkill, 0, len(packages))
+		fileGroups := make([][]model.AgentSkillFile, 0, len(packages))
+		for index, item := range packages {
+			id := defaultAgentSkillID(item.Root)
+			files, err := normalizeAgentSkillFiles(id, item.Files, current)
+			if err != nil {
+				return err
+			}
+			items = append(items, model.AgentSkill{
+				ID: id, Source: model.AgentSkillSourceSystem, Name: item.Name, Description: item.Description,
+				Content: item.Content, Enabled: true, Sort: index, CreatedAt: current, UpdatedAt: current,
+			})
+			fileGroups = append(fileGroups, files)
+		}
+		return repository.InitializeAgentSkills(items, fileGroups, current)
+	}
+
+	known := make(map[string]struct{}, len(existing))
+	nextSort := 0
+	for _, item := range existing {
+		known[item.ID] = struct{}{}
+		if item.Sort >= nextSort {
+			nextSort = item.Sort + 1
+		}
+	}
+	for _, item := range packages {
 		id := defaultAgentSkillID(item.Root)
+		if _, found := known[id]; found {
+			continue
+		}
 		files, err := normalizeAgentSkillFiles(id, item.Files, current)
 		if err != nil {
 			return err
 		}
-		items = append(items, model.AgentSkill{
+		_, err = repository.SaveAgentSkillPackage(model.AgentSkill{
 			ID: id, Source: model.AgentSkillSourceSystem, Name: item.Name, Description: item.Description,
-			Content: item.Content, Enabled: true, Sort: index, CreatedAt: current, UpdatedAt: current,
-		})
-		fileGroups = append(fileGroups, files)
+			Content: item.Content, Enabled: true, Sort: nextSort, CreatedAt: current, UpdatedAt: current,
+		}, files)
+		if err != nil {
+			return err
+		}
+		nextSort++
 	}
-	return repository.InitializeAgentSkills(items, fileGroups, current)
+	if initialized {
+		return nil
+	}
+	return repository.MarkAgentSkillsInitialized(current)
 }
 
 func readDefaultAgentSkillPackages() ([]defaultAgentSkillPackage, error) {

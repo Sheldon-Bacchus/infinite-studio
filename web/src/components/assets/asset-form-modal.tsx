@@ -1,12 +1,13 @@
 "use client";
 
 import { ChevronDown, Upload } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, AutoComplete, Button, Form, Input, Modal, Select, Space, Tag, Typography } from "antd";
 
 import { formatBytes, readFileAsDataUrl } from "@/lib/image-utils";
 import { uploadAssetMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
+import { visibleLocalStudioAssets } from "@/features/xiaji/local-studio-asset-visibility";
 import { useAssetStore, type Asset, type AssetKind, type AudioAsset, type ImageAsset, type VideoAsset } from "@/stores/use-asset-store";
 
 type AssetFormValues = {
@@ -34,7 +35,8 @@ export function AssetFormModal({ open, asset = null, onClose }: AssetFormModalPr
     const coverInputRef = useRef<HTMLInputElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const mediaInputRef = useRef<HTMLInputElement>(null);
-    const assets = useAssetStore((state) => state.assets);
+    const storedAssets = useAssetStore((state) => state.assets);
+    const assets = useMemo(() => visibleLocalStudioAssets(storedAssets), [storedAssets]);
     const addAsset = useAssetStore((state) => state.addAsset);
     const updateAsset = useAssetStore((state) => state.updateAsset);
     const [formKind, setFormKind] = useState<AssetKind>("text");

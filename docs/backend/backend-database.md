@@ -34,6 +34,7 @@ description: 当前后端主要数据表与字段说明
 - `comfy_bridges`
 - `comfy_bridge_requests`
 - `canvas_projects`
+- `local_workspace_assets`
 - `user_configs`
 - `storage_objects`
 
@@ -364,6 +365,21 @@ Bridge 持久化请求队列表。普通执行请求由服务端按设备分配�
 | `deleted_at` | string | 软删除时间，空字符串表示未删除；超过 7 天由启动时和每天定时任务物理清理 |
 
 索引：`idx_canvas_projects_user_deleted_updated (user_id, deleted_at, updated_at)`、`idx_canvas_projects_deleted_at (deleted_at)`
+
+### local_workspace_assets
+
+本机所有浏览器共享的“我的素材”索引。素材媒体正文保存在 `storage_objects` 对应文件中；本表存完整前端素材 JSON，并用工作区 ID 隔离固定本机工作区。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `workspace_id` | string | 工作区 ID；本机固定为 `local-workspace` |
+| `id` | string | 前端素材 ID，与 `workspace_id` 组成联合主键 |
+| `asset_data` | text | 完整素材 JSON，覆盖文本、图片、视频、音频及扩展元数据 |
+| `created_at` | string | 素材创建时间 |
+| `updated_at` | string | 素材更新时间，用于合并浏览器快照 |
+| `deleted_at` | string | 软删除时间；空字符串表示有效。旧页面同步不能清除此墓碑 |
+
+索引：`idx_local_workspace_assets_workspace_deleted_updated (workspace_id, deleted_at, updated_at)`。浏览器首次访问时会把该浏览器旧 LocalForage 素材快照增量迁入；迁移标记写在该浏览器的旧存储中，旧数据不删除。
 
 
 ### settings

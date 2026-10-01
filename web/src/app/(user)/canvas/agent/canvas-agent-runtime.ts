@@ -26,7 +26,7 @@ import {
 } from "./canvas-agent-memory";
 import {
     CANVAS_AGENT_SKILL_FILE_TOOL,
-    CANVAS_AGENT_TOOLS,
+    CANVAS_AGENT_USER_MODEL_TOOLS,
     canvasAgentActionLabel,
     isCanvasAgentMediaAction,
     normalizeCanvasAgentAction,
@@ -96,7 +96,7 @@ export async function runCanvasAgent(input: RunCanvasAgentInput): Promise<RunCan
     let contextCheckpoint = input.contextCheckpoint;
     const activeSkillContents = input.activeSkillContents?.map((skill, index) => `【完整 Skill ${index + 1}：${skill.name}（${skill.source === "system" ? `系统 Skill ID：${skill.id}` : "用户 Skill"}）】\n${skill.content}`).join("\n\n");
     const skillFileToolAvailable = Boolean(input.activeSkillContents?.some((skill) => skill.source === "system" && skill.hasFiles));
-    const agentTools = skillFileToolAvailable ? [...CANVAS_AGENT_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL] : CANVAS_AGENT_TOOLS;
+    const agentTools = skillFileToolAvailable ? [...CANVAS_AGENT_USER_MODEL_TOOLS, CANVAS_AGENT_SKILL_FILE_TOOL] : CANVAS_AGENT_USER_MODEL_TOOLS;
 
     const emitCheckpoint = () => input.onCheckpoint?.({
         state,

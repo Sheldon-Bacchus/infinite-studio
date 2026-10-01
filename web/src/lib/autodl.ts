@@ -17,7 +17,7 @@ export function getAutoDLCapabilities(workflow?: AutoDLWorkflow) {
     if (!workflow?.input_rules || workflow.kind === "unsupported") return undefined;
     const rules = workflow.input_rules;
     const images = Object.keys(rules).filter((key) => /^ref_image(?:_\d+)?$/.test(key));
-    const audios = Object.keys(rules).filter((key) => /^ref_audio_\d+$/.test(key));
+    const audios = Object.keys(rules).filter((key) => /^ref_audio(?:_\d+)?$/.test(key));
     const videos = Object.keys(rules).filter((key) => key === "ref_video");
     return {
         promptRequired: Boolean(rules.prompt?.required),

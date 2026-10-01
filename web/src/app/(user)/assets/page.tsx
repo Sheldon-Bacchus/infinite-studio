@@ -2,13 +2,14 @@
 
 import { Copy, Download, PencilLine, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Card, Drawer, Empty, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
+import { Alert, App, Button, Card, Drawer, Empty, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
 
 import { useCopyText } from "@/hooks/use-copy-text";
 import { formatBytes } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset, type AssetKind } from "@/stores/use-asset-store";
+import { visibleLocalStudioAssets } from "@/features/xiaji/local-studio-asset-visibility";
 import { exportAssets, readAssetPackage } from "./asset-transfer";
 import { AssetFormModal } from "@/components/assets/asset-form-modal";
 
@@ -24,7 +25,9 @@ export default function AssetsPage() {
     const { message } = App.useApp();
     const copyText = useCopyText();
     const assetInputRef = useRef<HTMLInputElement>(null);
-    const assets = useAssetStore((state) => state.assets);
+    const storedAssets = useAssetStore((state) => state.assets);
+    const assets = useMemo(() => visibleLocalStudioAssets(storedAssets), [storedAssets]);
+    const workspaceError = useAssetStore((state) => state.workspaceError);
     const addAsset = useAssetStore((state) => state.addAsset);
     const removeAsset = useAssetStore((state) => state.removeAsset);
     const [keyword, setKeyword] = useState("");
@@ -125,6 +128,8 @@ export default function AssetsPage() {
                         <h1 className="text-4xl font-semibold tracking-tight text-stone-950 dark:text-stone-100">我的素材</h1>
                         <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">收藏和管理常用素材，按类型、标题、分类和标签快速查找。</p>
                     </div>
+
+                    {workspaceError ? <Alert className="mx-auto mt-5 max-w-5xl" type="error" showIcon message="统一本地素材同步失败" description={workspaceError} /> : null}
 
                     <div className="mx-auto mt-8 w-full max-w-2xl">
                         <Input.Search
