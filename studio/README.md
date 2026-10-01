@@ -2,7 +2,7 @@
 
 ## Windows 本地快速启动
 
-无限片场作为独立项目位于 `studio/`；无限画布位于同级 `canvas/`，其 MCP 收在 `canvas/mcp/`。来源版本和许可证见仓库的[项目清单](../IMPLEMENTATIONS.md)。
+无限片场位于 `studio/`；原先同级的 `canvas/` 独立画布项目及其 MCP 已移除，片场内部画布功能保留。来源版本和许可证见仓库的[项目清单](../IMPLEMENTATIONS.md)。
 
 1. 安装 Go、Node.js 和 Bun。
 2. 在仓库根目录进入 Studio 项目目录并启动：
@@ -20,7 +20,7 @@
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1 -Action Stop
    ```
 
-完整逐步说明见 [`docs/local-quick-start.md`](docs/local-quick-start.md)。此启动器只启动无限片场；Studio Agent 插件位于 `studio/canvas-agent/`，Canvas MCP 位于 `canvas/mcp/`。
+完整逐步说明见 [`docs/local-quick-start.md`](docs/local-quick-start.md)。此启动器只启动无限片场；Studio Agent 插件位于 `studio/canvas-agent/`。
 
 <p align="center"><strong>把剧本、角色场景、分集镜头和画布创作，放进同一个影视项目。</strong></p>
 
@@ -41,7 +41,7 @@
 
 ## 当前状态
 
-本仓库包含无限片场和无限画布两个项目。MCP 与插件分别位于所属项目目录中；工作区历史测试记录、已验证项目与仍需手动验收的内容见 [`docs/progress/pending-test.md`](docs/progress/pending-test.md) 和仓库的[项目清单](../IMPLEMENTATIONS.md)。
+本仓库仅保留无限片场项目；工作区历史测试记录、已验证项目与仍需手动验收的内容见 [`docs/progress/pending-test.md`](docs/progress/pending-test.md) 和仓库的[项目清单](../IMPLEMENTATIONS.md)。
 
 本项目不连接 DramaClaw 服务。
 
