@@ -42,3 +42,8 @@
 
 - Canvas projects and My Assets are primarily stored in the browser. WebDAV can be configured for cross-device synchronization.
 - The AI API key is stored in the browser, which sends requests directly to OpenAI-compatible endpoints.
+
+## 长期交接
+
+- [无限画布与无限片场长期交接](HANDOFF.md)：当前进度、验证证据、启动入口、阻塞和下一步，持续原地维护。
+
