@@ -90,17 +90,33 @@ export class CommitQueue<T extends { id: string }> {
         if (this.phase === "conflict" && this.error) return Promise.reject(this.error);
         const completed = operationId ? this.completed.get(operationId) : undefined;
         if (completed) return Promise.resolve(completed.result);
-        if (this.active) return this.active.then((result) => operationId ? this.completed.get(operationId)?.result || result : result);
+        if (this.active) {
+            return this.active.then((result) => {
+                const operationResult = operationId ? this.completed.get(operationId) : undefined;
+                if (operationResult) return operationResult.result;
+                if (operationId && (this.pending?.operationId === operationId || this.draft?.operationId === operationId)) return this.flush(operationId);
+                if (!operationId && (this.pending || this.draft)) return this.flush();
+                if (operationId) throw new LocalWorkspaceError("指定 operationId 没有对应的待保存工作区草稿", "invalid");
+                return result;
+            });
+        }
         if (!this.pending && !this.draft) return Promise.reject(new LocalWorkspaceError("没有待保存的工作区草稿", "invalid"));
-        const active = this.drain();
-        this.active = active;
-        const settled = active.finally(() => {
-            if (this.active === active) {
+        let settled: Promise<WriteResult<T>>;
+        settled = this.drain().finally(() => {
+            if (this.active === settled) {
                 this.active = null;
                 if ((this.pending || this.draft) && this.phase !== "error" && this.phase !== "conflict") void this.flush().catch(() => undefined);
             }
         });
-        return operationId ? settled.then((result) => this.completed.get(operationId)?.result || result) : settled;
+        this.active = settled;
+        return settled.then((result) => {
+            const operationResult = operationId ? this.completed.get(operationId) : undefined;
+            if (operationResult) return operationResult.result;
+            if (operationId && (this.pending?.operationId === operationId || this.draft?.operationId === operationId)) return this.flush(operationId);
+            if (!operationId && (this.pending || this.draft)) return this.flush();
+            if (operationId) throw new LocalWorkspaceError("指定 operationId 没有对应的待保存工作区草稿", "invalid");
+            return result;
+        });
     }
 
     rebase(revision: number, workspaceId: string, recordId: string) {

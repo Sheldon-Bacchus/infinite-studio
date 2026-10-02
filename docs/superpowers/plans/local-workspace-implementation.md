@@ -23,11 +23,18 @@
 
 ## Current Implementation Status
 
+- 补齐素材 store 对既有 `isAsset` 校验器的导入；保存状态支持手动重试原提交、确认丢弃冲突草稿后回读最新记录并通知打开中的画布页重载，重连仅 hydrate 尚未加载的 store，避免覆盖当前草稿。运行行为仍为 NOT RUN。
+- 画布会话中的旧内嵌参考图片在恢复时上传到工作区，以内容哈希派生稳定 `fileId`，相同图片在同一恢复过程中共用一次上传。运行行为仍为 NOT RUN。
+- 扩展会话图片恢复：内嵌图片和当前浏览器 IndexedDB 的旧 `image:` 原件均转为稳定工作区文件；找不到原件时只保留旧键和缺失标记，不把被服务拒绝的旧 `storageKey`/`blob:` 地址写回。画布恢复上传失败会显示错误并可手动重试；冲突重载遇到已删除记录会触发打开页面离开旧草稿。以上运行行为仍为 NOT RUN。
+- ZIP v3 预览在同一媒体对象含有可用内嵌原件时忽略失效旧键缺件提示，并将旧键和内嵌媒体一起映射到稳定工作区引用。运行行为仍为 NOT RUN。
+
 - 已添加 workspace-service 的严格数据身份校验、单记录 CAS、文件原件 API、维护备份与独立恢复入口，以及固定本地启动配置。
 - 已将画布、素材、媒体和保存状态接入本地工作区；Agent/MCP 写入等待 canonical CAS 回执，重放使用 operationId 查询服务端原始写入回执；Agent 图片原件上传使用稳定文件 ID。
 - 已添加 ZIP v3 显式预览/校验/逐画布导入；冲突与缺件会拒绝提交，前面已提交的画布会立即进入列表，重选同一 ZIP 可跳过同内容画布后继续；旧整库导入和 WebDAV 整库写入保持禁用，恢复路径仍需运行验收。
+- Agent/MCP 上下文仅在当前画布恢复完成后开放；写入、撤销和排队生成绑定恢复批次，旧批次回调隔离有单元测试。
+- 提交队列测试先复现了 A 完成、B 刚排队时 `flush(op-b)` 返回 A 回执的问题；现已等待指定 operationId 自己完成，并覆盖 A/B 顺序、重放、冲突重基和离线保留。
 - 未保存离开提示已放到全局应用初始化，覆盖非画布页面的素材写入；本地图片上传完成后释放临时预览 URL。新增 `scripts/verify-workspace-backup.ps1` 作为备份只读校验入口。
-- 未运行构建、语法检查、测试或浏览器验收；未启动服务、未迁移数据。任务复选框中的验收项保持未勾选。
+- 已运行定向导入测试 5 项、定向提交队列测试 5 项，以及 `bun run test` 全量 14 项，均通过。提交队列用例覆盖 hydrate 防写回、A/B 顺序、operationId 重放、冲突重基与离线草稿；导入用例覆盖主媒体/封面/嵌套媒体映射、缺件拦截、冲突拒绝、部分提交失败后重选 ZIP 续传及重复内容跳过；Agent 用例覆盖旧画布恢复回调隔离。未运行构建、类型检查、后端测试或浏览器验收；未启动服务、未迁移数据。执行计划里的服务、MCP 端到端和浏览器验收项仍未勾选。
 
 ## Review Focus
 
@@ -101,8 +108,9 @@
 **Interfaces:** loadWorkspace():Promise<WorkspaceInfo>；getCanvas(id):Promise<RecordEnvelope<CanvasProject>>；commitCanvas(req):Promise<WriteResult<CanvasProject>>。
 CommitQueue<T> 暴露 enqueue(data:T):void、flush():Promise<WriteResult<T>>、dirty/saving/saved/error/conflict 订阅状态。按资源串行，同一提交重试保持 operationId。
 
-- [ ] commit-queue.test.ts：testHydrationDoesNotWrite、testEditBPreservedAfterAckA、testReplaySameOperation、testConflictKeepsDraft、testOfflineDoesNotFallback。
-- [ ] 获授权后 studio/web 中 bun test ./src/lib/local-workspace/commit-queue.test.ts，RED/GREEN。
+- [x] `testHydrationDoesNotWrite`：Zustand 持久化层收到的 hydrate 快照不触发再次写入。
+- [x] 提交队列覆盖 A/B 回执顺序、同 operation 重放、冲突后保留并重试草稿、离线时保留草稿（`studio/web/tests/commit-queue.test.ts`）。
+- [x] `studio/web` 运行 `bun test tests/commit-queue.test.ts` 与全量 `bun run test`，结果分别 5 项、14 项通过。
 - [ ] VITE_STORAGE_MODE=local-workspace 显式选择模式；初始读取 workspace 信息后加载项目，失败不回退空浏览器库。
 - [ ] 确认 A 返回只推进 canonical/revision，保留后续编辑 B 并继续提交；Zustand persist setItem 不是保存成功证据。
 - [ ] Vite 只转发 /api/local 和 /api/files 到 8086；不泛化代理模型请求。strictPort=43863。
@@ -128,8 +136,8 @@ CommitQueue<T> 暴露 enqueue(data:T):void、flush():Promise<WriteResult<T>>、d
 **Files:** lib/local-workspace/import.ts/import.test.ts；任务 0 确认的现有画布/资产导入文件；服务 import handler/service/repository。
 **Interfaces:** `prepareLocalWorkspaceImport(file)` 解析 ZIP v3 并返回冲突/错误预览；`commitLocalWorkspaceImport(plan,onCommitted?)` 逐画布上传原件并使用 CAS 提交，成功一项后立即通知页面更新列表。
 
-- [ ] testImportPreservesIds、testRepeatImportNoDuplicates、testIdCollisionRejectsOverwrite、testMissingFileDoesNotPublishProject、testNestedReferenceMapping。
-- [ ] 获授权后 bun test ./src/lib/local-workspace/import.test.ts 与服务对应 TestImport，RED/GREEN。
+- [x] 验证导入保留画布/节点 ID、重复内容跳过、同 ID 冲突拒绝覆盖、缺件不发布项目、主媒体/封面/嵌套媒体映射及部分失败后续传（`studio/web/tests/local-workspace-import.test.ts`）。
+- [x] `studio/web` 运行 `bun test tests/local-workspace-import.test.ts` 与全量 `bun run test`，结果分别 5 项、14 项通过；Go 服务对应 TestImport 仍待实现/运行。
 - [ ] 原浏览器来源完整导出含媒体备份；记录来源配置/域名端口，不能仅导出 JSON 或 blob URL。
 - [ ] 预览冲突和缺件；保留 canvas/node/connection/asset ID；不按标题匹配、不自动重新编号。
 - [ ] 原件齐全后一次事务提交此次文档/引用，失败不发布半个项目；同 operation 可恢复。

@@ -210,14 +210,21 @@ function InfiniteCanvasPage() {
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const createProject = useCanvasStore((state) => state.createProject);
-    const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
     const deleteProjects = useCanvasStore((state) => state.deleteProjects);
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
+    const projectReloadVersion = useCanvasStore((state) => state.projectReloadVersions[projectId] || 0);
+    const [projectReloadAttempt, setProjectReloadAttempt] = useState(0);
+    const projectLoadKey = `${projectId}:${projectReloadVersion}:${projectReloadAttempt}`;
+    const projectLoadKeyRef = useRef(projectLoadKey);
+    useLayoutEffect(() => {
+        projectLoadKeyRef.current = projectLoadKey;
+    }, [projectLoadKey]);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
     const [connections, setConnections] = useState<CanvasConnection[]>([]);
+    const [projectRestoreError, setProjectRestoreError] = useState("");
     const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [viewport, setViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
@@ -274,6 +281,11 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const videoPollIdsRef = useRef(new Set<string>());
+    const restoringProjectRef = useRef(false);
+    const projectReadyRef = useRef(false);
+    const restoredProjectKeyRef = useRef<string | null>(null);
+    if (restoredProjectKeyRef.current !== projectLoadKey || restoringProjectRef.current || !projectLoaded) projectReadyRef.current = false;
+    const projectReady = projectLoaded && projectReadyRef.current && restoredProjectKeyRef.current === projectLoadKey && !restoringProjectRef.current;
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -430,55 +442,76 @@ function InfiniteCanvasPage() {
     useEffect(() => {
         if (!hydrated) return;
         setProjectLoaded(false);
-        const project = openProject(projectId);
+        projectReadyRef.current = false;
+        restoredProjectKeyRef.current = null;
+        setProjectRestoreError("");
+        restoringProjectRef.current = true;
+        const project = useCanvasStore.getState().openProject(projectId);
         if (!project) {
+            restoringProjectRef.current = false;
             navigate("/canvas", { replace: true });
             return;
         }
 
+        let cancelled = false;
         const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
-            const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
-            setNodes(restoredNodes);
-            setConnections(project.connections);
-            setChatSessions(restoredSessions);
-            setActiveChatId(project.activeChatId || null);
-            setBackgroundMode(project.backgroundMode);
-            setShowImageInfo(project.showImageInfo || false);
-            setViewport(project.viewport);
-            historyRef.current = { past: [], future: [] };
-            if (historyCommitTimerRef.current) {
-                clearTimeout(historyCommitTimerRef.current);
-                historyCommitTimerRef.current = null;
+            try {
+                const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
+                const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
+                if (cancelled) return;
+                nodesRef.current = restoredNodes;
+                connectionsRef.current = project.connections;
+                viewportRef.current = project.viewport;
+                setNodes(restoredNodes);
+                setConnections(project.connections);
+                setChatSessions(restoredSessions);
+                setActiveChatId(project.activeChatId || null);
+                setBackgroundMode(project.backgroundMode);
+                setShowImageInfo(project.showImageInfo || false);
+                setViewport(project.viewport);
+                setSelectedNodeIds(new Set());
+                setSelectedConnectionId(null);
+                historyRef.current = { past: [], future: [] };
+                if (historyCommitTimerRef.current) {
+                    clearTimeout(historyCommitTimerRef.current);
+                    historyCommitTimerRef.current = null;
+                }
+                lastHistoryRef.current = {
+                    nodes: restoredNodes,
+                    connections: project.connections,
+                    chatSessions: restoredSessions,
+                    activeChatId: project.activeChatId || null,
+                    backgroundMode: project.backgroundMode,
+                    showImageInfo: project.showImageInfo || false,
+                };
+                setHistoryState({ canUndo: false, canRedo: false });
+                restoredProjectKeyRef.current = projectLoadKey;
+                projectReadyRef.current = true;
+                setProjectLoaded(true);
+            } catch (error) {
+                if (!cancelled) setProjectRestoreError(error instanceof Error ? error.message : "读取画布媒体失败");
+            } finally {
+                if (!cancelled) restoringProjectRef.current = false;
             }
-            lastHistoryRef.current = {
-                nodes: restoredNodes,
-                connections: project.connections,
-                chatSessions: restoredSessions,
-                activeChatId: project.activeChatId || null,
-                backgroundMode: project.backgroundMode,
-                showImageInfo: project.showImageInfo || false,
-            };
-            setHistoryState({ canUndo: false, canRedo: false });
-            setProjectLoaded(true);
         };
         void restore();
-    }, [hydrated, navigate, openProject, projectId]);
+        return () => { cancelled = true; };
+    }, [hydrated, navigate, projectId, projectLoadKey, projectReloadAttempt]);
 
     useEffect(() => {
-        if (!projectLoaded) return;
+        if (!projectReady) return;
         nodesRef.current.filter(hasResumableVideoTask).forEach((node) => void pollVideoNodeTask(node, true));
         // Resume once after the current canvas is restored, not on later config identity changes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [projectLoaded]);
+    }, [projectReady]);
 
     useEffect(() => {
-        if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
+        if (!projectReady || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
         if (!searchParams.has("agentUrl") && !localAgentEnabled && !fragmentBootstrap) openAgentPanel();
-    }, [fragmentBootstrap, localAgentEnabled, openAgentPanel, projectLoaded, searchParams]);
+    }, [fragmentBootstrap, localAgentEnabled, openAgentPanel, projectReady, searchParams]);
 
     useEffect(() => {
-        if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
+        if (!projectReady || applyingHistoryRef.current || historyPausedRef.current) return;
         const next = createHistoryEntry();
         const previous = lastHistoryRef.current;
         if (
@@ -509,19 +542,19 @@ function InfiniteCanvasPage() {
                 historyCommitTimerRef.current = null;
             }
         };
-    }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
+    }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectReady, showImageInfo]);
 
     useEffect(() => {
-        if (!projectLoaded || historyPausedRef.current) return;
+        if (!projectReady || restoringProjectRef.current || historyPausedRef.current) return;
         updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
-    }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
+    }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectReady, showImageInfo, updateProject]);
 
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
 
     useEffect(() => {
-        if (!projectLoaded) return;
+        if (!projectReady || restoringProjectRef.current) return;
         if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
         viewportSaveTimerRef.current = setTimeout(() => {
             updateProject(projectId, { viewport: viewportRef.current });
@@ -530,7 +563,7 @@ function InfiniteCanvasPage() {
         return () => {
             if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
         };
-    }, [projectId, projectLoaded, updateProject, viewport]);
+    }, [projectId, projectReady, updateProject, viewport]);
 
     useLayoutEffect(() => {
         nodesRef.current = nodes;
@@ -792,6 +825,10 @@ function InfiniteCanvasPage() {
     const referenceConnectedNodeIds = useMemo(() => new Set([referencePickerNodeId, ...(referencePickerNodeId ? connectedNodesByNodeId.get(referencePickerNodeId)?.flatMap((node) => node.type === CanvasNodeType.Group ? [node.id, ...getGroupResourceNodes(node.id, nodes).map((child) => child.id)] : [node.id]) || [] : [])].filter((id): id is string => Boolean(id))), [connectedNodesByNodeId, nodes, referencePickerNodeId]);
     const { applyAgentOps } = useAgentBridge({
         projectId,
+        projectLoadKey,
+        projectLoadKeyRef,
+        projectReady,
+        projectReadyRef,
         title: currentProject?.title,
         nodes,
         connections,
@@ -3110,7 +3147,18 @@ function InfiniteCanvasPage() {
         [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, runningNodeId],
     );
 
-    if (!projectLoaded) return <div className="relative h-full"><CanvasRefreshShell /><div className="absolute left-4 top-3 z-[60]"><CanvasLocalWorkspaceStatus recordId={projectId} /></div></div>;
+    if (!projectReady) return (
+        <div className="relative h-full" style={{ background: theme.canvas.background, color: theme.node.text }}>
+            <CanvasRefreshShell />
+            <div className="absolute left-4 top-3 z-[60]"><CanvasLocalWorkspaceStatus recordId={projectId} /></div>
+            {projectRestoreError ? (
+                <div className="absolute inset-x-4 bottom-4 z-[80] flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm shadow-lg" role="alert" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
+                    <span>{projectRestoreError}</span>
+                    <button type="button" className="shrink-0 underline underline-offset-2" onClick={() => setProjectReloadAttempt((attempt) => attempt + 1)}>重试读取</button>
+                </div>
+            ) : null}
+        </div>
+    );
 
     return (
         <main className="flex h-full min-h-0 overflow-hidden" style={{ background: theme.canvas.background, color: theme.node.text }}>

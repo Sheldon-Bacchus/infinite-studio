@@ -1,6 +1,6 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
-import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { ensureImagePreview, getLegacyImageBlob, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { isLocalWorkspaceMode } from "@/services/api/local-workspace";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
@@ -70,13 +70,42 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
 }
 
 export async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
+    const storedByDataUrl = new Map<string, ReturnType<typeof uploadImage>>();
+    const recoveredByStorageKey = new Map<string, Promise<Awaited<ReturnType<typeof uploadImage>> | null>>();
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string; fileId?: string }>(item: T) => {
-        if (item.storageKey || item.fileId) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl, item.fileId) };
+        const hasWorkspaceFile = Boolean(item.fileId || item.storageKey?.startsWith("file:"));
+        if (hasWorkspaceFile || (!isLocalWorkspaceMode && item.storageKey)) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl, item.fileId) };
         if (item.dataUrl?.startsWith("data:image/")) {
-            if (isLocalWorkspaceMode) return item;
-            const image = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: image.url, storageKey: image.storageKey, fileId: image.fileId };
+            let stored = storedByDataUrl.get(item.dataUrl);
+            if (!stored) {
+                stored = isLocalWorkspaceMode
+                    ? (async () => {
+                        const blob = await (await fetch(item.dataUrl!)).blob();
+                        return uploadAssistantImage(blob);
+                    })()
+                    : uploadImage(item.dataUrl);
+                storedByDataUrl.set(item.dataUrl, stored);
+            }
+            const image = await stored;
+            return { ...item, dataUrl: image.url, storageKey: image.storageKey, fileId: image.fileId, legacyStorageKey: undefined, mediaMissing: false };
         }
+        if (isLocalWorkspaceMode && item.storageKey) {
+            const sourceStorageKey = item.storageKey;
+            const legacyStorageKey = sourceStorageKey.startsWith("blob:") ? `legacy:${sourceStorageKey}` : sourceStorageKey;
+            let stored = recoveredByStorageKey.get(sourceStorageKey);
+            if (!stored) {
+                stored = (async () => {
+                    const blob = await getLegacyImageBlob(sourceStorageKey);
+                    return blob?.type.startsWith("image/") ? uploadAssistantImage(blob) : null;
+                })();
+                recoveredByStorageKey.set(sourceStorageKey, stored);
+            }
+            const image = await stored;
+            if (image) return { ...item, dataUrl: image.url, storageKey: image.storageKey, fileId: image.fileId, legacyStorageKey: undefined, mediaMissing: false };
+            const fallback = item.dataUrl && !item.dataUrl.startsWith("blob:") && !/^data:(image|audio|video|application)\//i.test(item.dataUrl) ? item.dataUrl : "";
+            return { ...item, dataUrl: fallback, storageKey: undefined, fileId: undefined, legacyStorageKey, mediaMissing: !fallback };
+        }
+        if (isLocalWorkspaceMode && item.dataUrl?.startsWith("blob:")) return { ...item, dataUrl: "", mediaMissing: true };
         return item;
     };
     return Promise.all(
@@ -90,6 +119,12 @@ export async function hydrateAssistantImages(sessions: CanvasAssistantSession[])
             ),
         })),
     );
+}
+
+async function uploadAssistantImage(blob: Blob) {
+    const hash = await crypto.subtle.digest("SHA-256", await new Blob([blob.type, "\0", blob]).arrayBuffer());
+    const fileId = `assistant_${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 48)}`;
+    return uploadImage(blob, { fileId });
 }
 
 export function getGenerationCount(count: string) {

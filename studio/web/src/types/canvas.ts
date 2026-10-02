@@ -113,6 +113,8 @@ export type CanvasAssistantReference = {
     dataUrl?: string;
     storageKey?: string;
     fileId?: string;
+    legacyStorageKey?: string;
+    mediaMissing?: boolean;
     text?: string;
 };
 

@@ -157,7 +157,7 @@ export function isCanvasProject(value: unknown): value is CanvasProject {
     );
 }
 
-function isAsset(value: unknown): value is Asset {
+export function isAsset(value: unknown): value is Asset {
     if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string" || typeof value.coverUrl !== "string" || !isArrayOf(isString)(value.tags) || typeof value.createdAt !== "string" || typeof value.updatedAt !== "string" || !isRecord(value.data)) return false;
     if (!isOptionalString(value.source) || !isOptionalString(value.note) || !isOptionalString(value.coverFileId) || (value.metadata !== undefined && !isRecord(value.metadata))) return false;
     if (value.kind === "text") return typeof value.data.content === "string";
@@ -216,7 +216,7 @@ function isCanvasConnection(value: unknown): value is CanvasConnection {
 }
 
 function isAssistantReference(value: unknown): value is CanvasAssistantReference {
-    return isRecord(value) && typeof value.id === "string" && typeof value.type === "string" && typeof value.title === "string" && isOptionalString(value.dataUrl) && isOptionalString(value.storageKey) && isOptionalString(value.fileId) && isOptionalString(value.text);
+    return isRecord(value) && typeof value.id === "string" && typeof value.type === "string" && typeof value.title === "string" && isOptionalString(value.dataUrl) && isOptionalString(value.storageKey) && isOptionalString(value.fileId) && isOptionalString(value.legacyStorageKey) && (value.mediaMissing === undefined || typeof value.mediaMissing === "boolean") && isOptionalString(value.text);
 }
 
 function isAssistantMessage(value: unknown): value is CanvasAssistantMessage {

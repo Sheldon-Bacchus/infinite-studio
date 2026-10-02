@@ -7,7 +7,7 @@ import { CommitQueue } from "@/lib/local-workspace/commit-queue";
 import { LocalWorkspaceError, type WriteResult } from "@/lib/local-workspace/types";
 import { cleanupUnusedImages, ensureImagePreview, previewUrlFor, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
-import { commitLocalWorkspaceAsset, deleteLocalWorkspaceAsset, getLocalWorkspaceOperation, isLocalWorkspaceMode, listLocalWorkspaceAssets } from "@/services/api/local-workspace";
+import { commitLocalWorkspaceAsset, deleteLocalWorkspaceAsset, getLocalWorkspaceOperation, isAsset, isLocalWorkspaceMode, listLocalWorkspaceAssets } from "@/services/api/local-workspace";
 import { useLocalWorkspaceStore } from "@/stores/use-local-workspace-store";
 
 export type AssetKind = "text" | "image" | "video";
@@ -246,4 +246,33 @@ export async function flushLocalWorkspaceAsset(id: string, operationId?: string)
 export function getLocalWorkspaceAssetSaveInfo(id: string) {
     const queue = assetCommitQueues.get(id);
     return { revision: queue?.snapshot().revision ?? assetRevisions.get(id) ?? null, operationId: queue?.snapshot().operationId ?? null };
+}
+
+export async function retryLocalWorkspaceAsset(id: string) {
+    const queue = assetCommitQueues.get(id);
+    if (!queue) throw new LocalWorkspaceError("素材没有待重试的工作区提交", "invalid");
+    return queue.flush();
+}
+
+export async function discardAndReloadLocalWorkspaceAsset(id: string) {
+    const workspace = useLocalWorkspaceStore.getState().workspace;
+    if (!workspace) throw new LocalWorkspaceError("本地工作区尚未连接", "unavailable");
+    const queue = assetCommitQueues.get(id);
+    if (queue?.snapshot().phase !== "conflict") throw new LocalWorkspaceError("当前素材没有待处理的冲突草稿", "invalid");
+    const envelope = (await listLocalWorkspaceAssets()).find((item) => item.id === id);
+    if (envelope && (envelope.workspaceId !== workspace.workspaceId || envelope.id !== id)) throw new LocalWorkspaceError("工作区素材身份不匹配", "invalid");
+    queue?.discardDraft();
+    if (envelope) {
+        queue?.rebase(envelope.revision, envelope.workspaceId, envelope.id);
+        assetRevisions.set(id, envelope.revision);
+        observedAssets.set(id, envelope.data);
+    } else {
+        assetCommitQueues.delete(id);
+        assetRevisions.delete(id);
+        observedAssets.delete(id);
+    }
+    requestedAssetOperations.delete(id);
+    queuedAssets = null;
+    useLocalWorkspaceStore.getState().setSaveState(`asset:${id}`, { phase: "clean", revision: envelope?.revision ?? null });
+    useAssetStore.setState((state) => ({ assets: envelope ? [envelope.data, ...state.assets.filter((asset) => asset.id !== id)] : state.assets.filter((asset) => asset.id !== id) }));
 }

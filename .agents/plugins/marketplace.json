@@ -1,14 +1,14 @@
 {
-  "name": "infinite-canvas",
+  "name": "infinite-canvas-local",
   "interface": {
-    "displayName": "infinite-canvas-plugin"
+    "displayName": "Infinite Canvas"
   },
   "plugins": [
     {
-      "name": "canvas-agent",
+      "name": "infinite-canvas",
       "source": {
         "source": "local",
-        "path": "./studio/canvas-agent"
+        "path": "./plugins/infinite-canvas"
       },
       "policy": {
         "installation": "AVAILABLE",

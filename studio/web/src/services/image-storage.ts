@@ -168,6 +168,10 @@ export async function getImageBlob(storageKey: string) {
     return store.getItem<Blob>(storageKey);
 }
 
+export async function getLegacyImageBlob(storageKey: string) {
+    return storageKey.startsWith("image:") ? store.getItem<Blob>(storageKey) : null;
+}
+
 // 缩略图按图片的 storageKey 另存一份 WebP，只放在本地 IndexedDB 里，不写进节点数据，也不参与导出和 WebDAV 同步。
 export function previewUrlFor(storageKey?: string) {
     return storageKey ? previewUrls.get(storageKey) : undefined;

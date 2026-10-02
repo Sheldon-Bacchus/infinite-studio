@@ -6,6 +6,9 @@ import type { FileReference, RecordEnvelope } from "@/lib/local-workspace/types"
 
 type PreparedFile = CanvasExportAsset & { blob: Blob; sha256: string; filename: string };
 type PreparedProject = { project: CanvasProject; canonicalProject: CanvasProject; files: PreparedFile[]; inlineMedia: Map<string, Blob>; state: "new" | "same" | "conflict" };
+type ProjectMediaReferences = { primary?: FileReference; cover?: FileReference };
+
+const inlineMediaFields = new Set(["content", "dataUrl", "url", "coverUrl"]);
 
 export type LocalWorkspaceImportPlan = {
     workspaceId: string;
@@ -112,28 +115,33 @@ export async function commitLocalWorkspaceImport(plan: LocalWorkspaceImportPlan,
 }
 
 function rewriteProject(project: CanvasProject, refs: Map<string, FileReference>): CanvasProject {
-    const rewrite = (value: unknown, key = "", ownerRef?: FileReference): unknown => {
+    const rewrite = (value: unknown, key = "", ownerRefs: ProjectMediaReferences = {}): unknown => {
         if (typeof value === "string") {
             if (value.startsWith("blob:")) throw new Error("ZIP 画布包含无法恢复的 blob URL");
-            if (value.startsWith("data:") && isInlineMedia(value) && ownerRef) return ownerRef.url;
-            if (value.startsWith("data:") && isInlineMedia(value)) {
-                const ref = refs.get(value);
+            if (inlineMediaFields.has(key) && value.startsWith("data:") && isInlineMedia(value)) {
+                const ref = refs.get(value) || (key === "coverUrl" ? ownerRefs.cover : ownerRefs.primary);
                 if (!ref) throw new Error("ZIP 内嵌媒体未进入原件映射");
                 return ref.url;
             }
-            if (key === "storageKey" && ownerRef) return ownerRef.storageKey;
-            if ((key === "fileId" || key === "coverFileId") && ownerRef) return ownerRef.fileId;
+            if (key === "storageKey" && ownerRefs.primary) return ownerRefs.primary.storageKey;
+            if (key === "fileId" && ownerRefs.primary) return ownerRefs.primary.fileId;
+            if (key === "coverFileId" && ownerRefs.cover) return ownerRefs.cover.fileId;
             if (key === "references" && value.startsWith("file:")) return refs.get(value)?.storageKey || value;
-            if (["content", "dataUrl", "url", "coverUrl"].includes(key) && ownerRef && (value.startsWith("/api/files/") || value.startsWith("data:"))) return ownerRef.url;
+            if (["content", "dataUrl", "url"].includes(key) && value.startsWith("/api/files/") && ownerRefs.primary) return ownerRefs.primary.url;
+            if (key === "coverUrl" && value.startsWith("/api/files/") && ownerRefs.cover) return ownerRefs.cover.url;
             return value;
         }
-        if (Array.isArray(value)) return value.map((item) => rewrite(item, key, ownerRef));
+        if (Array.isArray(value)) return value.map((item) => rewrite(item, key, ownerRefs));
         if (!isRecord(value)) return value;
-        const ownRef = (typeof value.storageKey === "string" ? refs.get(value.storageKey) : undefined)
+        const primary = (typeof value.storageKey === "string" ? refs.get(value.storageKey) : undefined)
             || (typeof value.fileId === "string" ? refs.get(`file:${value.fileId}`) : undefined)
-            || (typeof value.coverFileId === "string" ? refs.get(`file:${value.coverFileId}`) : undefined)
-            || ownerRef;
-        return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, rewrite(child, childKey, ownRef)]));
+            || (typeof value.dataUrl === "string" ? refs.get(value.dataUrl) : undefined)
+            || (typeof value.content === "string" ? refs.get(value.content) : undefined)
+            || (typeof value.url === "string" ? refs.get(value.url) : undefined);
+        const cover = (typeof value.coverFileId === "string" ? refs.get(`file:${value.coverFileId}`) : undefined)
+            || (typeof value.coverUrl === "string" ? refs.get(value.coverUrl) : undefined);
+        const ownRefs = { primary, cover };
+        return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, rewrite(child, childKey, ownRefs)]));
     };
     return rewrite(project) as CanvasProject;
 }
@@ -160,13 +168,13 @@ async function importFileId(workspaceId: string, fileHash: string) {
 
 function collectMissingFileReferences(project: CanvasProject, storageKeys: Set<string>) {
     const missing = new Set<string>();
-    const walk = (value: unknown, key = "") => {
+    const walk = (value: unknown, key = "", ownerHasInlineMedia = false) => {
         if (typeof value === "string") {
-            if (key === "storageKey" && /^(file|image|video|audio|video-reference|audio-reference):/.test(value) && !storageKeys.has(value)) missing.add(value);
-            if ((key === "fileId" || key === "coverFileId") && value && !storageKeys.has(`file:${value}`)) missing.add(`file:${value}`);
+            if (key === "storageKey" && /^(file|image|video|audio|video-reference|audio-reference):/.test(value) && !storageKeys.has(value) && !ownerHasInlineMedia) missing.add(value);
+            if ((key === "fileId" || key === "coverFileId") && value && !storageKeys.has(`file:${value}`) && !ownerHasInlineMedia) missing.add(`file:${value}`);
             if (key === "references" && value.startsWith("file:") && !storageKeys.has(value)) missing.add(value);
         } else if (Array.isArray(value)) value.forEach((item) => walk(item, key));
-        else if (isRecord(value)) Object.entries(value).forEach(([childKey, child]) => walk(child, childKey));
+        else if (isRecord(value)) Object.entries(value).forEach(([childKey, child]) => walk(child, childKey, typeof child === "string" && hasInlineMediaForReference(value, childKey)));
     };
     walk(project);
     return [...missing];
@@ -175,15 +183,18 @@ function collectMissingFileReferences(project: CanvasProject, storageKeys: Set<s
 async function collectInlineMedia(value: unknown, storageKeys: Set<string>, errors: string[], title: string) {
     const result = new Map<string, Blob>();
     const strings: string[] = [];
-    const visit = (item: unknown, fileBacked = false) => {
+    const visit = (item: unknown, key = "", ownerFileBacked = false) => {
         if (typeof item === "string") {
             if (item.startsWith("blob:")) errors.push(`画布「${title}」含无法导入的 blob URL`);
-            else if (!fileBacked && item.startsWith("data:") && isInlineMedia(item)) strings.push(item);
-        } else if (Array.isArray(item)) item.forEach((child) => visit(child, fileBacked));
+            else if (!ownerFileBacked && inlineMediaFields.has(key) && item.startsWith("data:") && isInlineMedia(item)) strings.push(item);
+        } else if (Array.isArray(item)) item.forEach((child) => visit(child, key));
         else if (isRecord(item)) {
-            const key = typeof item.storageKey === "string" ? item.storageKey : typeof item.fileId === "string" ? `file:${item.fileId}` : typeof item.coverFileId === "string" ? `file:${item.coverFileId}` : "";
-            const hasFile = fileBacked || Boolean(key && storageKeys.has(key));
-            Object.values(item).forEach((child) => visit(child, hasFile));
+            const primaryFileBacked = [item.storageKey, typeof item.fileId === "string" ? `file:${item.fileId}` : ""].some((fileKey) => typeof fileKey === "string" && storageKeys.has(fileKey));
+            const coverFileBacked = typeof item.coverFileId === "string" && storageKeys.has(`file:${item.coverFileId}`);
+            Object.entries(item).forEach(([childKey, child]) => {
+                const fileBacked = childKey === "coverUrl" ? coverFileBacked : ["content", "dataUrl", "url"].includes(childKey) && primaryFileBacked;
+                visit(child, childKey, typeof child === "string" && fileBacked);
+            });
         }
     };
     visit(value);
@@ -197,6 +208,12 @@ async function collectInlineMedia(value: unknown, storageKeys: Set<string>, erro
         }
     }));
     return result;
+}
+
+function hasInlineMediaForReference(value: Record<string, unknown>, key: string) {
+    const fields = key === "coverFileId" ? ["coverUrl"] : ["content", "dataUrl", "url"];
+    const sources = new Set(fields.map((field) => value[field]).filter((item): item is string => typeof item === "string" && isInlineMedia(item)));
+    return sources.size === 1;
 }
 
 function isInlineMedia(value: string) {

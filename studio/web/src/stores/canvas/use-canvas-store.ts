@@ -5,8 +5,9 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { CommitQueue } from "@/lib/local-workspace/commit-queue";
+import { shouldPersistCanvasState } from "@/lib/local-workspace/persisted-state";
 import { LocalWorkspaceError, type RecordEnvelope } from "@/lib/local-workspace/types";
-import { commitLocalCanvasProject, deleteLocalCanvasProject, getLocalWorkspaceOperation, isCanvasProject, isLocalWorkspaceMode, listLocalCanvasProjects } from "@/services/api/local-workspace";
+import { commitLocalCanvasProject, deleteLocalCanvasProject, getLocalCanvasProject, getLocalWorkspaceOperation, isCanvasProject, isLocalWorkspaceMode, listLocalCanvasProjects } from "@/services/api/local-workspace";
 import { useLocalWorkspaceStore } from "@/stores/use-local-workspace-store";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
@@ -33,6 +34,7 @@ export type CanvasDeletedProject = {
 type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
+    projectReloadVersions: Record<string, number>;
     deletedProjects: CanvasDeletedProject[];
     createProject: (title?: string) => string;
     importProject: (project: Partial<CanvasProject>) => string;
@@ -140,7 +142,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     },
     setItem: (name, value) => {
         const nextState = value.state as PersistedCanvasState;
-        if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects) return;
+        if (!shouldPersistCanvasState(queuedPersistState, nextState)) return;
         queuedPersistState = nextState;
         if (isLocalWorkspaceMode) persistLocalCanvasProjects(nextState.projects);
         if (saveTimer) clearTimeout(saveTimer);
@@ -157,6 +159,7 @@ export const useCanvasStore = create<CanvasStore>()(
         (set, get) => ({
             hydrated: false,
             projects: [],
+            projectReloadVersions: {},
             deletedProjects: [],
             createProject: (title = i18n.t("canvas.project.untitled")) => {
                 if (isLocalWorkspaceMode && !get().hydrated) throw new LocalWorkspaceError("本地工作区尚未读取完成，拒绝新建空画布", "unavailable");
@@ -284,4 +287,47 @@ export function getLocalCanvasProjectSaveInfo(id: string) {
         revision: queue?.snapshot().revision ?? canvasRevisions.get(id) ?? null,
         operationId: queue?.snapshot().operationId ?? null,
     };
+}
+
+export async function retryLocalCanvasProject(id: string) {
+    const queue = canvasCommitQueues.get(id);
+    if (!queue) throw new LocalWorkspaceError("画布没有待重试的工作区提交", "invalid");
+    return queue.flush();
+}
+
+export async function discardAndReloadLocalCanvasProject(id: string) {
+    const workspace = useLocalWorkspaceStore.getState().workspace;
+    if (!workspace) throw new LocalWorkspaceError("本地工作区尚未连接", "unavailable");
+    const queue = canvasCommitQueues.get(id);
+    if (queue?.snapshot().phase !== "conflict") throw new LocalWorkspaceError("当前画布没有待处理的冲突草稿", "invalid");
+    try {
+        const envelope = await getLocalCanvasProject(id);
+        if (envelope.workspaceId !== workspace.workspaceId || envelope.id !== id) throw new LocalWorkspaceError("工作区画布身份不匹配", "invalid");
+        queue?.discardDraft();
+        queue?.rebase(envelope.revision, envelope.workspaceId, envelope.id);
+        canvasRevisions.set(id, envelope.revision);
+        observedCanvasProjects.set(id, envelope.data);
+        requestedCanvasOperations.delete(id);
+        useLocalWorkspaceStore.getState().setSaveState(`canvas:${id}`, { phase: "clean", revision: envelope.revision });
+        queuedPersistState = null;
+        useCanvasStore.setState((state) => ({
+            projects: [envelope.data, ...state.projects.filter((project) => project.id !== id)],
+            projectReloadVersions: { ...state.projectReloadVersions, [id]: (state.projectReloadVersions[id] || 0) + 1 },
+        }));
+        return true;
+    } catch (error) {
+        if (!(error instanceof LocalWorkspaceError) || error.phase !== "not-found") throw error;
+        queue?.discardDraft();
+        canvasCommitQueues.delete(id);
+        canvasRevisions.delete(id);
+        observedCanvasProjects.delete(id);
+        requestedCanvasOperations.delete(id);
+        useLocalWorkspaceStore.getState().setSaveState(`canvas:${id}`, { phase: "clean", revision: null });
+        queuedPersistState = null;
+        useCanvasStore.setState((state) => ({
+            projects: state.projects.filter((project) => project.id !== id),
+            projectReloadVersions: { ...state.projectReloadVersions, [id]: (state.projectReloadVersions[id] || 0) + 1 },
+        }));
+        return false;
+    }
 }
