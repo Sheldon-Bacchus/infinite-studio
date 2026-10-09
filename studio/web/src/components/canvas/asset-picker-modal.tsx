@@ -7,7 +7,11 @@ import { cn } from "@/lib/utils";
 import { getImagePreviewRevision, subscribeImagePreviews } from "@/services/image-storage";
 import { assetCoverUrl, useAssetStore, type Asset } from "@/stores/use-asset-store";
 
-export type InsertAssetPayload = { kind: "text"; content: string; title: string } | { kind: "image"; dataUrl: string; title: string; storageKey?: string; fileId?: string } | { kind: "video"; url: string; title: string; storageKey?: string; fileId?: string; width?: number; height?: number };
+export type InsertAssetPayload =
+    | { kind: "text"; content: string; title: string }
+    | { kind: "image"; dataUrl: string; title: string; storageKey?: string; fileId?: string }
+    | { kind: "video"; url: string; title: string; storageKey?: string; fileId?: string; width?: number; height?: number }
+    | { kind: "audio"; url: string; title: string; storageKey?: string; fileId?: string; duration?: number };
 
 type Props = {
     open: boolean;
@@ -27,7 +31,7 @@ export function AssetPickerModal({ open, onInsert, onClose }: Props) {
 
 const PAGE_SIZE = 8;
 
-const kindOptions = ["all", "text", "image", "video"];
+const kindOptions = ["all", "text", "image", "video", "audio"];
 
 function PickerCard({ title, kind, cover, onClick }: { title: string; kind: string; cover: string; onClick: () => void }) {
     const { t } = useTranslation();
@@ -64,7 +68,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets
-            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video")
+            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video" || a.kind === "audio")
             .filter((a) => kindFilter === "all" || a.kind === kindFilter)
             .filter((a) => !query || [a.title, ...(a.tags || [])].join(" ").toLowerCase().includes(query));
     }, [assets, keyword, kindFilter]);
@@ -79,8 +83,12 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const handleInsert = (asset: Asset) => {
         if (asset.kind === "text") {
             onInsert({ kind: "text", content: asset.data.content, title: asset.title });
+        } else if (asset.kind === "audio") {
+            onInsert({ kind: "audio", url: asset.data.url, storageKey: asset.data.storageKey, fileId: asset.data.fileId, title: asset.title, duration: asset.data.duration });
+        } else if (asset.kind === "video") {
+            onInsert({ kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, fileId: asset.data.fileId, title: asset.title, width: asset.data.width, height: asset.data.height });
         } else {
-            onInsert(asset.kind === "video" ? { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, fileId: asset.data.fileId, title: asset.title, width: asset.data.width, height: asset.data.height } : { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, fileId: asset.data.fileId, title: asset.title });
+            onInsert({ kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, fileId: asset.data.fileId, title: asset.title });
         }
     };
 

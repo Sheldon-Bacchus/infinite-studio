@@ -13,7 +13,7 @@ i18n.use(initReactI18next).init({
         "zh-CN": { translation: zhCN },
         "en-US": { translation: enUS },
     },
-    lng: (localStorage.getItem(LOCALE_STORAGE_KEY) as AppLocale) || "zh-CN",
+    lng: (typeof localStorage !== "undefined" ? (localStorage.getItem(LOCALE_STORAGE_KEY) as AppLocale) : null) || "zh-CN",
     fallbackLng: "zh-CN",
     supportedLngs: ["zh-CN", "en-US"],
     initAsync: false,
@@ -22,7 +22,7 @@ i18n.use(initReactI18next).init({
 });
 
 export function changeAppLocale(locale: AppLocale) {
-    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    if (typeof localStorage !== "undefined") localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     return i18n.changeLanguage(locale);
 }
 

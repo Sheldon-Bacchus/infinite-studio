@@ -1,0 +1,40 @@
+{
+  "app": "infinite-canvas",
+  "profile": "model-channel-profile",
+  "id": "autodl-core-workflows",
+  "version": 1,
+  "channel": {
+    "id": "autodl-core",
+    "name": "AutoDL",
+    "baseUrl": "https://autodl.art",
+    "apiFormat": "autodl",
+    "models": [
+      {
+        "name": "minimax_h3_zm_u24",
+        "displayName": "MiniMax H3 多图多音频生视频（升级画质）",
+        "capability": "video"
+      },
+      {
+        "name": "minimax_h3_image_audio_to_video_v2_15s",
+        "displayName": "MiniMax H3 多图多音频生视频（原版，15秒）",
+        "capability": "video"
+      },
+      {
+        "name": "minimax_h3_image_audio_to_video",
+        "displayName": "MiniMax H3 图像与音频转视频",
+        "capability": "video"
+      },
+      {
+        "name": "minimax_h3_lightx2v",
+        "displayName": "MiniMax H3 LightX2V 快速视频生成",
+        "capability": "video"
+      },
+      {
+        "name": "wan2.2animate-v4-motion_retargeting",
+        "displayName": "Wan 2.2 Animate V4 动作迁移",
+        "capability": "video"
+      }
+    ]
+  },
+  "defaultVideoModel": "minimax_h3_zm_u24"
+}

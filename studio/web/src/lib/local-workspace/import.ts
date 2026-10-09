@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import { readZip } from "@/lib/zip";
 import { commitLocalCanvasProject, isCanvasProject, listLocalCanvasProjects, loadLocalWorkspace, uploadLocalWorkspaceFile } from "@/services/api/local-workspace";
 import type { CanvasExportAsset } from "@/types/canvas-export";
@@ -88,12 +89,18 @@ export function localWorkspaceImportConflicts(plan: LocalWorkspaceImportPlan) {
     return plan.projects.filter((item) => item.state === "conflict");
 }
 
-export async function commitLocalWorkspaceImport(plan: LocalWorkspaceImportPlan, onCommitted?: (project: RecordEnvelope<CanvasProject>) => void) {
-    if (plan.errors.length || localWorkspaceImportConflicts(plan).length) throw new Error("ZIP 中存在错误或画布 ID 冲突，已拒绝导入");
+export async function commitLocalWorkspaceImport(
+    plan: LocalWorkspaceImportPlan,
+    onCommitted?: (project: RecordEnvelope<CanvasProject>) => void,
+    options?: { asCopy?: boolean },
+) {
+    if (plan.errors.length || (!options?.asCopy && localWorkspaceImportConflicts(plan).length)) {
+        throw new Error("ZIP 中存在错误或画布 ID 冲突，已拒绝导入");
+    }
     const imported: RecordEnvelope<CanvasProject>[] = [];
     const uploaded = new Map<string, FileReference>();
     for (const item of plan.projects) {
-        if (item.state !== "new") continue;
+        if (!options?.asCopy && item.state !== "new") continue;
         const refs = new Map<string, FileReference>();
         for (const source of [...item.files.map((entry) => ({ key: entry.storageKey, blob: entry.blob, filename: entry.filename })), ...[...item.inlineMedia].map(([key, blob]) => ({ key, blob, filename: mediaFilename(blob.type) }))]) {
             let ref = uploaded.get(source.key);
@@ -105,8 +112,10 @@ export async function commitLocalWorkspaceImport(plan: LocalWorkspaceImportPlan,
             refs.set(source.key, ref);
             if (source.key.startsWith("file:")) refs.set(source.key.slice("file:".length), ref);
         }
-        const data = rewriteProject(item.project, refs);
-        const operationId = `zip_import_${(await digest(new Blob([`${plan.workspaceId}\0${item.project.id}\0${stableJSON(data)}`]))).slice(0, 48)}`;
+        const rewritten = rewriteProject(item.project, refs);
+        const data = options?.asCopy ? { ...rewritten, id: nanoid() } : rewritten;
+        const operationPrefix = options?.asCopy ? "zip_import_copy_" : "zip_import_";
+        const operationId = `${operationPrefix}${(await digest(new Blob([`${plan.workspaceId}\0${data.id}\0${stableJSON(data)}`]))).slice(0, 44)}`;
         const result = await commitLocalCanvasProject(data.id, { workspaceId: plan.workspaceId, operationId, baseRevision: null, data });
         imported.push(result);
         onCommitted?.(result);
@@ -117,7 +126,11 @@ export async function commitLocalWorkspaceImport(plan: LocalWorkspaceImportPlan,
 function rewriteProject(project: CanvasProject, refs: Map<string, FileReference>): CanvasProject {
     const rewrite = (value: unknown, key = "", ownerRefs: ProjectMediaReferences = {}): unknown => {
         if (typeof value === "string") {
-            if (value.startsWith("blob:")) throw new Error("ZIP 画布包含无法恢复的 blob URL");
+            if (value.startsWith("blob:")) {
+                const ref = key === "coverUrl" ? ownerRefs.cover : ["content", "dataUrl", "url"].includes(key) ? ownerRefs.primary : undefined;
+                if (!ref) throw new Error("ZIP 画布包含无法恢复的 blob URL");
+                return ref.url;
+            }
             if (inlineMediaFields.has(key) && value.startsWith("data:") && isInlineMedia(value)) {
                 const ref = refs.get(value) || (key === "coverUrl" ? ownerRefs.cover : ownerRefs.primary);
                 if (!ref) throw new Error("ZIP 内嵌媒体未进入原件映射");
@@ -126,7 +139,7 @@ function rewriteProject(project: CanvasProject, refs: Map<string, FileReference>
             if (key === "storageKey" && ownerRefs.primary) return ownerRefs.primary.storageKey;
             if (key === "fileId" && ownerRefs.primary) return ownerRefs.primary.fileId;
             if (key === "coverFileId" && ownerRefs.cover) return ownerRefs.cover.fileId;
-            if (key === "references" && value.startsWith("file:")) return refs.get(value)?.storageKey || value;
+            if (key === "references") return refs.get(value)?.storageKey || value;
             if (["content", "dataUrl", "url"].includes(key) && value.startsWith("/api/files/") && ownerRefs.primary) return ownerRefs.primary.url;
             if (key === "coverUrl" && value.startsWith("/api/files/") && ownerRefs.cover) return ownerRefs.cover.url;
             return value;
@@ -172,7 +185,7 @@ function collectMissingFileReferences(project: CanvasProject, storageKeys: Set<s
         if (typeof value === "string") {
             if (key === "storageKey" && /^(file|image|video|audio|video-reference|audio-reference):/.test(value) && !storageKeys.has(value) && !ownerHasInlineMedia) missing.add(value);
             if ((key === "fileId" || key === "coverFileId") && value && !storageKeys.has(`file:${value}`) && !ownerHasInlineMedia) missing.add(`file:${value}`);
-            if (key === "references" && value.startsWith("file:") && !storageKeys.has(value)) missing.add(value);
+            if (key === "references" && /^(file|image|video|audio|video-reference|audio-reference):/.test(value) && !storageKeys.has(value)) missing.add(value);
         } else if (Array.isArray(value)) value.forEach((item) => walk(item, key));
         else if (isRecord(value)) Object.entries(value).forEach(([childKey, child]) => walk(child, childKey, typeof child === "string" && hasInlineMediaForReference(value, childKey)));
     };
@@ -185,7 +198,7 @@ async function collectInlineMedia(value: unknown, storageKeys: Set<string>, erro
     const strings: string[] = [];
     const visit = (item: unknown, key = "", ownerFileBacked = false) => {
         if (typeof item === "string") {
-            if (item.startsWith("blob:")) errors.push(`画布「${title}」含无法导入的 blob URL`);
+            if (item.startsWith("blob:") && !ownerFileBacked) errors.push(`画布「${title}」含无法导入的 blob URL`);
             else if (!ownerFileBacked && inlineMediaFields.has(key) && item.startsWith("data:") && isInlineMedia(item)) strings.push(item);
         } else if (Array.isArray(item)) item.forEach((child) => visit(child, key));
         else if (isRecord(item)) {

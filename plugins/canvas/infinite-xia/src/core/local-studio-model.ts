@@ -48,6 +48,7 @@ export type LocalStudioBeatRecord = {
     recordType: "beat";
     projectAssetId: string;
     episodeAssetId: string;
+    shotId?: string;
     order: number;
     sourceBeatNumber?: number;
     dialogueText?: string;
@@ -56,13 +57,36 @@ export type LocalStudioBeatRecord = {
     supersedesAssetId?: string;
     supersededByAssetId?: string;
     approvalState?: "approved" | "superseded";
+    currentPromptAssetId?: string;
     packageId?: string;
     contentDigest?: string;
     sourceKey?: string;
     [key: string]: unknown;
 };
 
-export type LocalStudioRecord = LocalStudioProjectRecord | LocalStudioEpisodeRecord | LocalStudioScriptRecord | LocalStudioBeatRecord;
+export type LocalStudioPromptRecord = {
+    schemaVersion: 1;
+    recordType: "prompt";
+    projectAssetId: string;
+    episodeAssetId: string;
+    shotId: string;
+    sourceRevision?: string;
+    imagePrompt?: string;
+    videoPrompt?: string;
+    version?: number;
+    previousPromptAssetId?: string;
+    packageId?: string;
+    contentDigest?: string;
+    sourceKey?: string;
+    [key: string]: unknown;
+};
+
+export type LocalStudioRecord =
+    | LocalStudioProjectRecord
+    | LocalStudioEpisodeRecord
+    | LocalStudioScriptRecord
+    | LocalStudioBeatRecord
+    | LocalStudioPromptRecord;
 
 export type LocalStudioValidationIssue = { assetId: string; code: string; message: string };
 
@@ -175,18 +199,45 @@ function isLocalStudioRecord(value: unknown): value is LocalStudioRecord {
         case "beat":
             return isNonEmptyString(value.projectAssetId) && isNonEmptyString(value.episodeAssetId) && isPositiveInteger(value.order)
                 && Array.isArray(value.referencedAssetIds) && value.referencedAssetIds.every(isNonEmptyString)
+                && (value.shotId === undefined || isNonEmptyString(value.shotId))
                 && (value.dialogueText === undefined || typeof value.dialogueText === "string")
                 && (value.sourceBeatNumber === undefined || isPositiveInteger(value.sourceBeatNumber))
                 && (value.version === undefined || isPositiveInteger(value.version))
                 && (value.supersedesAssetId === undefined || isNonEmptyString(value.supersedesAssetId))
                 && (value.supersededByAssetId === undefined || isNonEmptyString(value.supersededByAssetId))
                 && (value.approvalState === undefined || value.approvalState === "approved" || value.approvalState === "superseded")
+                && (value.currentPromptAssetId === undefined || isNonEmptyString(value.currentPromptAssetId))
+                && (value.packageId === undefined || isNonEmptyString(value.packageId))
+                && (value.sourceKey === undefined || isNonEmptyString(value.sourceKey))
+                && (value.contentDigest === undefined || (typeof value.contentDigest === "string" && /^[a-f0-9]{64}$/.test(value.contentDigest)));
+        case "prompt":
+            return isNonEmptyString(value.projectAssetId) && isNonEmptyString(value.episodeAssetId)
+                && isNonEmptyString(value.shotId)
+                && (value.sourceRevision === undefined || typeof value.sourceRevision === "string")
+                && (value.imagePrompt === undefined || typeof value.imagePrompt === "string")
+                && (value.videoPrompt === undefined || typeof value.videoPrompt === "string")
+                && (value.version === undefined || isPositiveInteger(value.version))
+                && (value.previousPromptAssetId === undefined || isNonEmptyString(value.previousPromptAssetId))
                 && (value.packageId === undefined || isNonEmptyString(value.packageId))
                 && (value.sourceKey === undefined || isNonEmptyString(value.sourceKey))
                 && (value.contentDigest === undefined || (typeof value.contentDigest === "string" && /^[a-f0-9]{64}$/.test(value.contentDigest)));
         default:
             return false;
     }
+}
+
+export function listLocalStudioPrompts(assets: Asset[], shotId: string): Asset[] {
+    if (!shotId) return [];
+    return assets.filter((asset) => {
+        const record = getLocalStudioRecord(asset);
+        return record?.recordType === "prompt" && record.shotId === shotId;
+    }).sort((a, b) => {
+        const ra = getLocalStudioRecord(a);
+        const rb = getLocalStudioRecord(b);
+        const va = (ra && "version" in ra ? (ra.version as number) : 1) || 1;
+        const vb = (rb && "version" in rb ? (rb.version as number) : 1) || 1;
+        return vb - va;
+    });
 }
 
 export function getLocalStudioRecord(asset: Asset): LocalStudioRecord | null {

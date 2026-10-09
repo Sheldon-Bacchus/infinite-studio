@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { definePlugin, useEffect, useMemo, useRef, useState } from "@infinite-canvas/plugin-sdk";
+import { definePlugin, getWorks, useEffect, useMemo, useRef, useState } from "@infinite-canvas/plugin-sdk";
 import type { CanvasAgentOp, CanvasNodeContentProps } from "@infinite-canvas/plugin-sdk";
 import type { CSSProperties } from "react";
 import type { Asset } from "./core/asset-types";
@@ -18,6 +18,7 @@ const text = (asset?: Asset) => asset?.kind === "text" ? asset.data.content : ""
 function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
     const latest = useRef(ctx);
     latest.current = ctx;
+    const works = getWorks();
     const assetsRef = useRef<Asset[]>([]);
     const [assets, setAssets] = useState<Asset[]>([]);
     const [loading, setLoading] = useState(true);
@@ -34,6 +35,9 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
     const [beatContent, setBeatContent] = useState("");
     const [beatDialogue, setBeatDialogue] = useState("");
     const [beatId, setBeatId] = useState("");
+    const [imagePrompt, setImagePrompt] = useState("");
+    const [videoPrompt, setVideoPrompt] = useState("");
+    const [selectedPromptId, setSelectedPromptId] = useState("");
     const [references, setReferences] = useState<string[]>([]);
     const [domain, setDomain] = useState<XiaTangDomain>("character");
     const [assetTitle, setAssetTitle] = useState("");
@@ -49,21 +53,43 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
     const repository = useMemo(() => createLocalStudioRepository({
         getAssets: () => assetsRef.current,
         saveAssetsAndWait: async (next) => {
-            const saved = await saveWorkspace(storage, next);
-            updateAssets(saved);
-            latest.current.emit("infinite-xia:changed");
-            return saved;
+            const curWork = works?.getCurrentWork();
+            if (works && curWork) {
+                // 有作品归属：通过 works capability 保存，服务失败禁止写旧 IndexedDB
+                const saved = (await works.saveAssetsAndWait(next)) as Asset[];
+                updateAssets(saved);
+                latest.current.emit("infinite-xia:changed");
+                return saved;
+            } else {
+                // 无作品归属：提示用户选择或迁移，禁止自动静默覆盖旧 IndexedDB
+                throw new Error("当前未选定作品！请在作品库中新建或选择作品，或通过迁移导入。旧来源仅供只读浏览。");
+            }
         },
-        readCanonicalAssets: () => readWorkspace(storage),
-    }), []);
+        readCanonicalAssets: async () => {
+            const curWork = works?.getCurrentWork();
+            if (works && curWork) {
+                return (await works.readCanonicalAssets()) as Asset[];
+            }
+            return readWorkspace(storage);
+        },
+    }), [works]);
 
     useEffect(() => {
         let alive = true;
-        const reload = () => readWorkspace(storage).then((next) => { if (alive) updateAssets(next); }).catch((e) => { if (alive) setError(String(e)); });
+        const reload = async () => {
+            try {
+                const curWork = works?.getCurrentWork();
+                const next = curWork && works ? (await works.readCanonicalAssets() as Asset[]) : await readWorkspace(storage);
+                if (alive) updateAssets(next);
+            } catch (e) {
+                if (alive) setError(String(e));
+            }
+        };
         void reload().finally(() => { if (alive) setLoading(false); });
-        const unsubscribe = latest.current.on("infinite-xia:changed", () => void reload());
-        return () => { alive = false; unsubscribe(); };
-    }, []);
+        const unsubscribeChanged = latest.current.on("infinite-xia:changed", () => void reload());
+        const unsubscribeWork = works?.onWorkChanged ? works.onWorkChanged(() => void reload()) : () => {};
+        return () => { alive = false; unsubscribeChanged(); unsubscribeWork(); };
+    }, [works]);
 
     const projects = repository.listProjects();
     const project = assets.find((asset) => asset.id === projectId);
@@ -77,6 +103,7 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
     useEffect(() => {
         setScript(episodeRecord?.recordType === "episode" ? text(assets.find((asset) => asset.id === episodeRecord.scriptAssetId)) : "");
         setBeatId(""); setBeatTitle(""); setBeatContent(""); setBeatDialogue(""); setReferences([]);
+        setImagePrompt(""); setVideoPrompt(""); setSelectedPromptId("");
     }, [episodeId, episodeRecord?.recordType === "episode" ? episodeRecord.scriptAssetId : ""]);
 
     async function run(action: () => Promise<unknown>, success: string) {
@@ -97,28 +124,96 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
     function toCanvas(selected: Asset[]) {
         const nodes = ctx.getNodes();
         const ops: CanvasAgentOp[] = [];
+        const curWork = works?.getCurrentWork();
+        const activeWorkId = curWork?.id || "";
+
         selected.forEach((asset, index) => {
             const id = `infinite-xia-${ctx.node.id}-${asset.id}`;
             const content = text(asset);
             const xiaRecord = getXiaTangRecord(asset);
+            const studioRecord = getLocalStudioRecord(asset);
+            const selectedPromptAsset = studioRecord?.recordType === "beat" && studioRecord.currentPromptAssetId
+                ? assets.find((item) => item.id === studioRecord.currentPromptAssetId)
+                : undefined;
+            const selectedPrompt = selectedPromptAsset ? getLocalStudioRecord(selectedPromptAsset) : null;
+            const rawData = asset.data as Record<string, unknown>;
+            const fileId = typeof rawData?.fileId === "string" ? rawData.fileId : undefined;
+            // 必须读取投影中的 canonical record 身份，不得用原 Asset id / fileId 伪装
+            const canonical = (asset.metadata as Record<string, unknown>)?.worksCanonical as {
+                objectId?: string;
+                revisionId?: string;
+                workId?: string;
+            } | undefined;
+            const objectId = canonical?.objectId || asset.id;
+            const revisionId = canonical?.revisionId;
+            // 跨 work 节点不能仅 xiajiAssetId 存在就强归当前作品
+            const itemWorkId = canonical?.workId || (curWork ? activeWorkId : undefined);
+
             const metadata = {
-                content: asset.kind === "image" ? asset.data.dataUrl : asset.kind === "video" || asset.kind === "audio" ? asset.data.url : xiaRecord ? `${asset.title}\n${JSON.stringify(xiaRecord.fields, null, 2)}` : content,
-                status: "success" as const, xiajiAssetId: asset.id, xiajiProjectAssetId: projectId,
-                ...(asset.kind === "image" ? { naturalWidth: asset.data.width, naturalHeight: asset.data.height, mimeType: asset.data.mimeType, bytes: asset.data.bytes } : {}),
-                ...(asset.kind === "video" || asset.kind === "audio" ? { mimeType: asset.data.mimeType, bytes: asset.data.bytes } : {}),
+                content: asset.kind === "image" ? (rawData?.dataUrl || rawData?.url) : (asset.kind === "video" || asset.kind === "audio") ? rawData?.url : xiaRecord ? `${asset.title}\n${JSON.stringify(xiaRecord.fields, null, 2)}` : content,
+                status: "success" as const,
+                xiajiAssetId: asset.id,
+                xiajiProjectAssetId: projectId,
+                workId: itemWorkId,
+                objectId,
+                revisionId,
+                fileId,
+                sourceId: `infinite-xia:${asset.id}`,
+                source: "infinite-xia",
+                worksCanonical: canonical,
+                ...(studioRecord?.recordType === "beat" ? {
+                    episodeId: studioRecord.episodeAssetId,
+                    shotId: studioRecord.shotId || `shot-${asset.id}`,
+                    sourceRevision: canonical?.revisionId,
+                    ...(selectedPrompt?.recordType === "prompt" ? {
+                        selectedPromptRevisionId: ((selectedPromptAsset?.metadata as Record<string, unknown> | undefined)?.worksCanonical as { revisionId?: string } | undefined)?.revisionId || selectedPromptAsset?.id,
+                        promptRevisionId: ((selectedPromptAsset?.metadata as Record<string, unknown> | undefined)?.worksCanonical as { revisionId?: string } | undefined)?.revisionId || selectedPromptAsset?.id,
+                        imagePrompt: selectedPrompt.imagePrompt || "",
+                        videoPrompt: selectedPrompt.videoPrompt || "",
+                    } : {}),
+                } : {}),
+                ...(asset.kind === "image" ? { naturalWidth: rawData?.width, naturalHeight: rawData?.height, mimeType: rawData?.mimeType, bytes: rawData?.bytes } : {}),
+                ...(asset.kind === "video" || asset.kind === "audio" ? { mimeType: rawData?.mimeType, bytes: rawData?.bytes } : {}),
             };
             if (nodes.some((node) => node.id === id)) {
                 ops.push({ type: "update_node", id, patch: { title: asset.title }, metadata });
             } else {
-                ops.push({ type: "add_node", id, nodeType: asset.kind, title: asset.title,
+                ops.push({
+                    type: "add_node",
+                    id,
+                    nodeType: asset.kind,
+                    title: asset.title,
                     x: ctx.node.position.x + ctx.node.width + 80 + (index % 3) * 340,
                     y: ctx.node.position.y + Math.floor(index / 3) * 260,
-                    width: 300, height: 220, metadata });
+                    width: 300,
+                    height: 220,
+                    metadata,
+                });
             }
         });
         ctx.applyOps(ops);
-        ctx.updateMetadata({ xiajiProjectAssetId: projectId });
+        ctx.updateMetadata({ xiajiProjectAssetId: projectId, workId: activeWorkId });
         setNotice(`已将 ${selected.length} 项放入当前画布；重复导入更新同一节点`);
+    }
+
+    async function batchArchiveFromCanvas() {
+        if (!works) {
+            throw new Error("作品能力未加载");
+        }
+        const curWork = works.getCurrentWork();
+        if (!curWork) {
+            throw new Error("请先选择或创建当前作品，再执行反向归档");
+        }
+        if (!works.archiveCanvasNodes) {
+            throw new Error("当前环境未支持画布反向归档能力");
+        }
+        const nodes = ctx.getNodes();
+        if (nodes.length === 0) {
+            throw new Error("当前画布上没有可归档的节点");
+        }
+        const canvasId = (ctx.node.metadata?.canvasId as string) || `canvas-${curWork.id}`;
+        const result = await works.archiveCanvasNodes(nodes, canvasId);
+        setNotice(`反向归档完成：已记录/复用 ${result.archivedCount} 项作品修订，${result.pendingCount} 项未知归属产物存入待归档集合`);
     }
 
     async function loadFile(file: File | undefined, target: "source" | "workspace") {
@@ -163,12 +258,24 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
         }, "媒体已保存，并设为当前版本");
     }
 
+    const curWork = works?.getCurrentWork();
+
     return <section className="infinite-xia" data-canvas-no-zoom onMouseDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
         style={{ color: ctx.theme.node.text, background: ctx.theme.toolbar.panel, "--xia-muted": ctx.theme.node.muted, "--xia-line": ctx.theme.node.stroke } as CSSProperties}>
         <header><div><span className="xia-kicker">INFINITE XIA</span><h2>无限虾</h2></div><div className="xia-actions">
+            <button onClick={() => void run(batchArchiveFromCanvas, "反向归档成功")} disabled={busy || loading}>反向归档画布</button>
             <button onClick={exportWorkspace} disabled={busy || loading}>导出项目</button>
             <label className="xia-file">导入项目<input type="file" accept=".json" disabled={busy || loading} onChange={(e) => { void loadFile(e.target.files?.[0], "workspace"); e.target.value = ""; }} /></label>
         </div></header>
+        {curWork ? (
+            <div style={{ padding: "6px 16px", background: "rgba(0,0,0,0.03)", fontSize: "12px", borderBottom: "1px solid var(--xia-line)" }}>
+                关联作品：<strong>{curWork.title}</strong> (修订 r{curWork.revision})
+            </div>
+        ) : (
+            <div style={{ padding: "6px 16px", background: "rgba(255,165,0,0.1)", fontSize: "12px", color: "#d97706", borderBottom: "1px solid var(--xia-line)" }}>
+                提示：未选定统一作品，旧来源仅供只读浏览。请在作品库创建/选择作品或迁移。
+            </div>
+        )}
         <div className="xia-project"><label>当前项目<select value={projectId} disabled={busy || loading} onChange={(e) => projectSelect(e.target.value)}><option value="">选择项目／新建</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
             <span>{projects.length} 个项目 · {episodes.length} 集</span></div>
         <nav aria-label="无限虾工作流">{[["intake", "01 虾料"], ["assets", "02 虾塘"], ["shots", "03 虾镜"], ["review", "产物审核"]].map(([id, label]) => <button key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
@@ -224,8 +331,93 @@ function XiaWorkbench({ ctx }: CanvasNodeContentProps) {
                         if (beatId) await repository.updateBeat({ projectAssetId: projectId, episodeAssetId: episodeId, beatAssetId: beatId, title: beatTitle, content: beatContent, dialogueText: beatDialogue, referencedAssetIds: references });
                         else await repository.createBeat({ projectAssetId: projectId, episodeAssetId: episodeId, title: beatTitle, order: beats.length + 1, content: beatContent, dialogueText: beatDialogue, referencedAssetIds: references });
                         setBeatId(""); setBeatTitle(""); setBeatContent(""); setBeatDialogue(""); setReferences([]);
+                        setImagePrompt(""); setVideoPrompt(""); setSelectedPromptId("");
                     }, "镜头已保存")}>保存镜头</button>
-                    <ul>{beats.map((item) => <li key={item.id}><button onClick={() => { const r = getLocalStudioRecord(item); setBeatId(item.id); setBeatTitle(item.title); setBeatContent(text(item)); if (r?.recordType === "beat") { setBeatDialogue(r.dialogueText || ""); setReferences(r.referencedAssetIds); } }}>{item.title}</button><button onClick={() => toCanvas([item])}>放入画布</button></li>)}</ul>
+                    {beatId && (() => {
+                        const selectedBeat = beats.find((b) => b.id === beatId);
+                        const bRec = selectedBeat ? getLocalStudioRecord(selectedBeat) : null;
+                        const sId = bRec?.recordType === "beat" ? (bRec.shotId || `shot-${selectedBeat.id}`) : "";
+                        const pList = sId ? repository.listPrompts(sId) : [];
+                        return (
+                            <div className="xia-prompt-box" style={{ marginTop: "10px", padding: "8px", border: "1px dashed #ccc", borderRadius: "4px" }}>
+                                <h4>镜头提示词修订</h4>
+                                {pList.length > 0 && (
+                                    <label>历史提示词版本
+                                        <select
+                                            value={selectedPromptId}
+                                            onChange={(e) => {
+                                                const pid = e.target.value;
+                                                setSelectedPromptId(pid);
+                                                const targetP = pList.find((p) => p.id === pid);
+                                                const pr = targetP ? getLocalStudioRecord(targetP) : null;
+                                                if (pr?.recordType === "prompt") {
+                                                    setImagePrompt(pr.imagePrompt || "");
+                                                    setVideoPrompt(pr.videoPrompt || "");
+                                                }
+                                            }}
+                                        >
+                                            <option value="">当前最新/编辑版本</option>
+                                            {pList.map((p) => {
+                                                const pr = getLocalStudioRecord(p);
+                                                return <option key={p.id} value={p.id}>{p.title} (v{pr?.recordType === "prompt" ? pr.version : 1})</option>;
+                                            })}
+                                        </select>
+                                    </label>
+                                )}
+                                {selectedPromptId && selectedPromptId !== bRec?.currentPromptAssetId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void run(async () => {
+                                            await repository.selectPromptRevision({ beatAssetId: beatId, promptAssetId: selectedPromptId });
+                                        }, "当前提示词修订已切换")}
+                                    >设为当前版本</button>
+                                )}
+                                <label>生图提示词<textarea rows={2} value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder="为该镜头指定生图提示词" /></label>
+                                <label>生视频提示词<textarea rows={2} value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)} placeholder="为该镜头指定生视频提示词" /></label>
+                                <button
+                                    type="button"
+                                    disabled={!imagePrompt.trim() && !videoPrompt.trim()}
+                                    onClick={() => void run(async () => {
+                                        const saved = await repository.savePromptRevision({
+                                            projectAssetId: projectId,
+                                            episodeAssetId: episodeId,
+                                            shotId: sId,
+                                            beatAssetId: beatId,
+                                            imagePrompt,
+                                            videoPrompt,
+                                        });
+                                        setSelectedPromptId(saved.id);
+                                    }, "提示词修订已保存")}
+                                >
+                                    保存提示词修订
+                                </button>
+                            </div>
+                        );
+                    })()}
+                    <ul>{beats.map((item) => <li key={item.id}><button onClick={() => {
+                        const r = getLocalStudioRecord(item);
+                        setBeatId(item.id);
+                        setBeatTitle(item.title);
+                        setBeatContent(text(item));
+                        if (r?.recordType === "beat") {
+                            setBeatDialogue(r.dialogueText || "");
+                            setReferences(r.referencedAssetIds);
+                            const sid = r.shotId || `shot-${item.id}`;
+                            const plist = repository.listPrompts(sid);
+                            if (plist.length > 0) {
+                                const pr = getLocalStudioRecord(plist[0]);
+                                if (pr?.recordType === "prompt") {
+                                    setImagePrompt(pr.imagePrompt || "");
+                                    setVideoPrompt(pr.videoPrompt || "");
+                                    setSelectedPromptId(plist[0].id);
+                                }
+                            } else {
+                                setImagePrompt("");
+                                setVideoPrompt("");
+                                setSelectedPromptId("");
+                            }
+                        }
+                    }}>{item.title}</button><button onClick={() => toCanvas([item])}>放入画布</button></li>)}</ul>
                     <button disabled={!beats.length} onClick={() => toCanvas(beats)}>本集镜头放入当前画布</button></>}
             </>}
             {tab === "review" && <>

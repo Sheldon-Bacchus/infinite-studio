@@ -3,7 +3,7 @@
 import { nanoid } from "nanoid";
 
 import type { Asset } from "./asset-types";
-import { createLocalStudioAssetInput, getLocalStudioRecord, listCurrentLocalStudioBeats, patchLocalStudioRecord, validateLocalStudioAssetCollection, type LocalStudioRecord } from "./local-studio-model";
+import { createLocalStudioAssetInput, getLocalStudioRecord, listCurrentLocalStudioBeats, listLocalStudioPrompts, patchLocalStudioRecord, validateLocalStudioAssetCollection, type LocalStudioRecord } from "./local-studio-model";
 import { createXiajiArtifactAssetId, createXiajiArtifactCommitId, createXiajiArtifactContentDigest, validateXiajiArtifactPackage, type XiajiArtifactPackage } from "./xiaji-artifact-package";
 
 export type CreateLocalStudioProjectInput = {
@@ -40,6 +40,7 @@ export type SaveLocalStudioScriptInput = {
 export type CreateLocalStudioBeatInput = {
     projectAssetId: string;
     episodeAssetId: string;
+    shotId?: string;
     order: number;
     content: string;
     title?: string;
@@ -51,11 +52,22 @@ export type CreateLocalStudioBeatInput = {
 export type UpdateLocalStudioBeatInput = {
     projectAssetId: string;
     episodeAssetId: string;
+    shotId?: string;
     beatAssetId: string;
     title: string;
     content: string;
     dialogueText?: string;
     referencedAssetIds: string[];
+};
+
+export type SaveLocalStudioPromptInput = {
+    projectAssetId: string;
+    episodeAssetId: string;
+    shotId: string;
+    beatAssetId?: string;
+    imagePrompt?: string;
+    videoPrompt?: string;
+    sourceRevision?: string;
 };
 
 export type LocalStudioRepositoryDependencies = {
@@ -170,6 +182,33 @@ export function createLocalStudioRepository(dependencies: LocalStudioRepositoryD
         },
         listBeats(episodeAssetId: string) {
             return listCurrentLocalStudioBeats(dependencies.getAssets(), episodeAssetId);
+        },
+        listPrompts(shotId: string) {
+            return listLocalStudioPrompts(dependencies.getAssets(), shotId);
+        },
+        async selectPromptRevision(input: { beatAssetId: string; promptAssetId: string }): Promise<Asset> {
+            const assets = dependencies.getAssets();
+            const beat = assets.find((asset) => asset.id === input.beatAssetId);
+            const prompt = assets.find((asset) => asset.id === input.promptAssetId);
+            const beatRecord = beat ? getLocalStudioRecord(beat) : null;
+            const promptRecord = prompt ? getLocalStudioRecord(prompt) : null;
+            if (beatRecord?.recordType !== "beat" || promptRecord?.recordType !== "prompt"
+                || beatRecord.shotId !== promptRecord.shotId
+                || beatRecord.episodeAssetId !== promptRecord.episodeAssetId
+                || beatRecord.projectAssetId !== promptRecord.projectAssetId) {
+                throw new Error("提示词修订不属于当前镜头");
+            }
+            const updated = { ...patchLocalStudioRecord(beat, { currentPromptAssetId: prompt.id }), updatedAt: now() } as Asset;
+            const snapshot = assets.map((asset) => asset.id === beat.id ? updated : asset);
+            const issues = validateLocalStudioAssetCollection(snapshot).issues;
+            if (issues.length) throw new Error(issueMessage(issues[0].code));
+            const canonical = await dependencies.saveAssetsAndWait(snapshot);
+            const saved = canonical.find((asset) => asset.id === beat.id);
+            const savedRecord = saved ? getLocalStudioRecord(saved) : null;
+            if (savedRecord?.recordType !== "beat" || savedRecord.currentPromptAssetId !== prompt.id) {
+                throw new Error("本地保存响应未确认当前提示词修订关系");
+            }
+            return saved;
         },
         getSourceText(projectAssetId: string): string | null {
             const project = dependencies.getAssets().find((asset) => asset.id === projectAssetId);
@@ -452,11 +491,13 @@ export function createLocalStudioRepository(dependencies: LocalStudioRepositoryD
             const timestamp = now();
             const beatId = idFactory();
             if (!beatId || assets.some((asset) => asset.id === beatId)) throw new Error("本地素材 ID 冲突，请重试");
+            const shotId = input.shotId || `shot-${beatId}`;
             const beat = makeAsset(createLocalStudioAssetInput(title, input.content, {
                 schemaVersion: 1,
                 recordType: "beat",
                 projectAssetId: input.projectAssetId,
                 episodeAssetId: input.episodeAssetId,
+                shotId,
                 order: input.order,
                 sourceBeatNumber: input.sourceBeatNumber,
                 dialogueText: input.dialogueText,
@@ -500,8 +541,10 @@ export function createLocalStudioRepository(dependencies: LocalStudioRepositoryD
             const timestamp = now();
             const updatedId = idFactory();
             if (!updatedId || assets.some((asset) => asset.id === updatedId)) throw new Error("本地素材 ID 冲突，请重试");
+            const shotId = record.shotId || input.shotId || `shot-${existing.id}`;
             const nextRecord = {
                 ...record,
+                shotId,
                 version: (record.version || 1) + 1,
                 supersedesAssetId: existing.id,
                 supersededByAssetId: undefined,
@@ -530,6 +573,53 @@ export function createLocalStudioRepository(dependencies: LocalStudioRepositoryD
             if (savedEpisodeRecord?.recordType !== "episode" || !savedEpisodeRecord.currentBeatAssetIds?.includes(updated.id)
                 || savedEpisodeRecord.currentBeatAssetIds.includes(existing.id)) {
                 throw new Error("本地保存响应未确认分集关联的镜头素材");
+            }
+            return saved;
+        },
+        async savePromptRevision(input: SaveLocalStudioPromptInput): Promise<Asset> {
+            const assets = dependencies.getAssets();
+            const existingPrompts = listLocalStudioPrompts(assets, input.shotId);
+            const version = existingPrompts.length + 1;
+            const promptId = idFactory();
+            const timestamp = now();
+            const promptRecord: LocalStudioRecord = {
+                schemaVersion: 1,
+                recordType: "prompt",
+                projectAssetId: input.projectAssetId,
+                episodeAssetId: input.episodeAssetId,
+                shotId: input.shotId,
+                sourceRevision: input.sourceRevision,
+                imagePrompt: input.imagePrompt || "",
+                videoPrompt: input.videoPrompt || "",
+                version,
+                previousPromptAssetId: existingPrompts[0]?.id,
+            };
+            const promptAsset = makeAsset(
+                createLocalStudioAssetInput(
+                    `提示词修订 v${version}`,
+                    JSON.stringify({ imagePrompt: input.imagePrompt || "", videoPrompt: input.videoPrompt || "" }),
+                    promptRecord,
+                ),
+                promptId,
+                timestamp,
+            );
+            let snapshot = [promptAsset, ...assets];
+            if (input.beatAssetId) {
+                const beat = assets.find((a) => a.id === input.beatAssetId);
+                if (beat) {
+                    const nextBeat = {
+                        ...patchLocalStudioRecord(beat, { currentPromptAssetId: promptAsset.id, shotId: input.shotId }),
+                        updatedAt: timestamp,
+                    } as Asset;
+                    snapshot = snapshot.map((a) => (a.id === beat.id ? nextBeat : a));
+                }
+            }
+            const issues = validateLocalStudioAssetCollection(snapshot).issues;
+            if (issues.length) throw new Error(issueMessage(issues[0].code));
+            const canonical = await dependencies.saveAssetsAndWait(snapshot);
+            const saved = canonical.find((a) => a.id === promptAsset.id);
+            if (!saved || !sameSavedPayload(promptAsset, saved)) {
+                throw new Error("本地保存响应未确认提示词修订内容");
             }
             return saved;
         },

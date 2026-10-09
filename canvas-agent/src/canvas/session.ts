@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { McpConnections, type CanvasBinding, type ExecutionState } from "./mcp-connections.js";
 import type { ServerResponse } from "node:http";
 
 import type { AgentAttachment } from "../agent/types.js";
@@ -6,9 +8,10 @@ import { logger } from "../utils/logger.js";
 import { buildCanvasToolRequest, fitAttachmentNodeSize } from "./operations.js";
 import type { ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
+import { LocalAssets } from "./local-assets.js";
 import type { CanvasSnapshot } from "./types.js";
 
-type PendingRequest = { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
+type PendingRequest = { clientId: string; localAssetIds?: string[]; projectId?: string; binding?: CanvasBinding; state: ExecutionState; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type TurnAttachment = { clientId: string; id: string; name: string; type: string; size: number; width: number; height: number; dataUrl: string };
 type ReplayEvent = { type: string; payload: Record<string, unknown> };
 export type CodexState = { busy: boolean; threadId: string; turnId: string };
@@ -23,7 +26,7 @@ export type ConversationState = {
     error?: string;
 };
 type McpInventoryItem = { name: string; authStatus?: string };
-export const AGENT_PROTOCOL_VERSION = 6;
+export const AGENT_PROTOCOL_VERSION = 8;
 
 const SITE_TOOLS = new Set<ToolName>([
     "site_navigate",
@@ -36,15 +39,19 @@ const SITE_TOOLS = new Set<ToolName>([
     "assets_list",
     "assets_add",
     "generation_get_status",
+    "canvas_import_local_assets",
 ]);
 
 /** 管理网页画布连接、状态、附件和工具请求。 */
 export class CanvasSession {
+    readonly mcpConnections = new McpConnections();
+    readonly localAssets: LocalAssets;
+    private toolScope = new AsyncLocalStorage<CanvasBinding>();
     private clients = new Map<string, ServerResponse>();
     private clientFocusOrder = new Map<string, number>();
     private pending = new Map<string, PendingRequest>();
     private pendingApprovals = new Map<string, Record<string, unknown>>();
-    private canvasStates = new Map<string, CanvasSnapshot>();
+    private canvasStates = new Map<string, CanvasSnapshot & { revision?: string }>();
     private turnAttachments = new Map<string, TurnAttachment>();
     private codexReplayEvents = new Map<string, ReplayEvent>();
     private codexReplayActiveItems = new Set<string>();
@@ -53,11 +60,13 @@ export class CanvasSession {
     private boundClientId = "";
     private focusSequence = 0;
     private codexState: CodexState = { busy: false, threadId: "", turnId: "" };
+    private webAgentEnabled = false;
     private conversationState: ConversationState;
     private conversationInventoryComplete = false;
     private preparedConversationThreadId = "";
 
-    constructor(activeThreadId = "") {
+    constructor(activeThreadId = "", localAssetDirectories: string[] = []) {
+        this.localAssets = new LocalAssets(localAssetDirectories);
         this.conversationState = {
             revision: 1,
             conversationId: activeThreadId || crypto.randomUUID(),
@@ -67,6 +76,65 @@ export class CanvasSession {
         };
     }
 
+    get isWebAgentEnabled(): boolean {
+        return this.webAgentEnabled;
+    }
+
+    private findExternalLeaseConflict(action = "启用网页 Agent"): string | null {
+        const busyConn = this.mcpConnections.list().find(
+            (conn) => conn.executionState === "executing" || conn.executionState === "unknown"
+        );
+        if (busyConn) {
+            return `外部聊天通道（${busyConn.bindCode || busyConn.label}）正处于 ${busyConn.executionState} 状态，无法${action}`;
+        }
+        const hasExecutingPending = [...this.pending.values()].some((item) => item.state === "executing");
+        if (hasExecutingPending) {
+            return `当前存在正在执行中的操作，受租约保护，无法${action}`;
+        }
+        return null;
+    }
+
+    checkExternalLease(action = "发起任务"): string | null {
+        return this.findExternalLeaseConflict(action);
+    }
+
+    assertNoExternalLease(action = "发起任务"): void {
+        const conflict = this.findExternalLeaseConflict(action);
+        if (conflict) {
+            throw new Error(conflict);
+        }
+    }
+
+    setWebAgentEnabled(enabled: boolean) {
+        if (enabled) {
+            this.assertNoExternalLease("启用网页 Agent");
+        } else {
+            if (this.codexState.busy) {
+                throw new Error("网页 Agent 正在执行任务，请先结束或中断任务后再关闭");
+            }
+        }
+        this.webAgentEnabled = enabled;
+    }
+
+    getOccupant(): string {
+        if (this.codexState.busy) {
+            return "网页Agent";
+        }
+        const executingConn = this.mcpConnections.list().find(
+            (conn) => conn.executionState === "executing" || conn.executionState === "unknown"
+        );
+        if (executingConn) {
+            return executingConn.bindCode;
+        }
+        const boundConn = this.mcpConnections.list().find(
+            (c) => !c.revoked && c.binding && (!this.targetClientId || c.binding.clientId === this.targetClientId)
+        ) || this.mcpConnections.list().find((c) => !c.revoked && c.binding);
+        if (boundConn) {
+            return boundConn.bindCode;
+        }
+        return "空闲";
+    }
+
     /** 获取当前目标网页的画布状态。 */
     private get canvasState() {
         return this.clients.has(this.targetClientId) ? this.canvasStates.get(this.targetClientId) || null : null;
@@ -74,12 +142,139 @@ export class CanvasSession {
 
     /** 获取当前 turn 绑定或最近激活的网页客户端。 */
     private get targetClientId() {
+        const binding = this.toolScope.getStore();
+        if (binding) {
+            if (!this.mcpConnections.valid(binding) || this.canvasStates.get(binding.clientId)?.projectId !== binding.projectId) throw new Error("画布绑定已失效，拒绝旧请求");
+            return binding.clientId;
+        }
         return this.boundClientId || this.activeClientId;
+    }
+
+    connectionStatus() {
+        return {
+            webAgentEnabled: this.webAgentEnabled,
+            occupant: this.getOccupant(),
+            connections: this.mcpConnections.list(),
+            clients: [...this.clients.keys()].map((clientId) => ({
+                clientId,
+                projectId: this.canvasStates.get(clientId)?.projectId || "",
+                title: this.canvasStates.get(clientId)?.title || "",
+                revision: this.canvasStates.get(clientId)?.revision || "",
+            })),
+        };
+    }
+
+    clientList() {
+        return [...this.clients.keys()].map((clientId) => ({
+            clientId,
+            projectId: this.canvasStates.get(clientId)?.projectId || "",
+            title: this.canvasStates.get(clientId)?.title || "",
+            revision: this.canvasStates.get(clientId)?.revision || "",
+        }));
+    }
+
+    private syncConnectionExecutionState(sessionId?: string, fallback: ExecutionState = "idle", expectedRevision?: string) {
+        if (!sessionId) return;
+        const currentBinding = this.mcpConnections.getBinding(sessionId);
+        if (expectedRevision && currentBinding?.revision !== expectedRevision) return;
+        const items = [...this.pending.values()].filter((item) => {
+            if (item.binding?.sessionId !== sessionId) return false;
+            // 新绑定状态不能被旧请求推导污染，按当前 binding revision 聚合
+            if (currentBinding) {
+                return item.binding.revision === currentBinding.revision;
+            }
+            return !item.binding;
+        });
+        if (items.some((item) => item.state === "executing")) {
+            this.mcpConnections.setExecutionState(sessionId, "executing");
+        } else if (items.some((item) => item.state === "unknown")) {
+            this.mcpConnections.setExecutionState(sessionId, "unknown");
+        } else {
+            this.mcpConnections.setExecutionState(sessionId, fallback);
+        }
+    }
+
+    bindMcpConnection(identifier: string, clientId: string, takeover = false, force = false) {
+        const state = this.canvasStates.get(clientId);
+        if (!this.clients.has(clientId) || !state?.projectId) throw new Error("目标网页未连接或画布尚未同步");
+        if (this.codexState.busy) throw new Error("网页 Agent 正在执行，请先结束或中断当前任务再接管");
+
+        const clientPending = [...this.pending.values()].filter((item) => item.clientId === clientId);
+        if (clientPending.some((item) => item.state === "executing")) {
+            throw new Error("工具操作已开始执行，受租约保护，请等待操作结束后再绑定或接管");
+        }
+
+        // 全部验证通过前，绝不执行 clearUnknown / reject，防止失败绑定也改变租约
+        const { binding, revokedBindings, previousBinding } = this.mcpConnections.bind(identifier, clientId, state.projectId, takeover, force);
+
+        // 全部验证成功后才精确撤销对应绑定及其 pending
+        const revokedRevisions = new Set(revokedBindings.map((item) => `${item.sessionId}\0${item.revision}`));
+        this.pending.forEach((item, requestId) => {
+            // 被接管通道中与被撤销 revision 匹配的 pending
+            if (item.binding && revokedRevisions.has(`${item.binding.sessionId}\0${item.binding.revision}`)) {
+                this.pending.delete(requestId);
+                item.reject(new Error(force && item.state === "unknown" ? "用户强制接管，原租约已强行释放" : "画布独占通道已被接管，旧请求已失效"));
+                return;
+            }
+            // 同一通道重绑也取消旧 revision pending
+            if (previousBinding && item.binding && item.binding.sessionId === previousBinding.sessionId && item.binding.revision === previousBinding.revision) {
+                this.pending.delete(requestId);
+                item.reject(new Error(force && item.state === "unknown" ? "用户强制接管，原租约已强行释放" : "画布通道已重新绑定，旧版本请求已失效"));
+                return;
+            }
+            // 强制接管/重绑时：所选通道清理它自己的 unknown pending（包括无 binding 时遗留的 unknown）
+            if (force && item.binding?.sessionId === binding.sessionId && item.state === "unknown") {
+                this.pending.delete(requestId);
+                item.reject(new Error("用户强制接管，原租约已强行释放"));
+                return;
+            }
+        });
+
+        this.emitAll("connection_changed", this.connectionStatus());
+        return binding;
+    }
+
+    callMcpTool(sessionId: string, name: unknown, input: unknown, internal = false) {
+        if (internal) {
+            if (!this.codexState.busy || !this.boundClientId) throw new Error("网页 Agent 没有正在执行的绑定任务");
+            return this.callTool(name, input);
+        }
+        const toolNameStr = String(name || "");
+        const isReadTool = SITE_TOOLS.has(toolNameStr as ToolName)
+            || toolNameStr === "canvas_get_state"
+            || toolNameStr === "canvas_get_selection"
+            || toolNameStr === "canvas_export_snapshot";
+        if (!isReadTool && this.codexState.busy) {
+            throw new Error("网页 Agent 正在使用画布,请稍后");
+        }
+        const binding = this.mcpConnections.get(sessionId);
+        if (!isReadTool && !this.mcpConnections.valid(binding)) {
+            throw new Error("当前操作为写操作，缺少可信的独占通道授权，已被安全拒绝。请先在连接面板绑定当前对话的独占通道。");
+        }
+        return this.toolScope.run(binding, () => this.callTool(name, input));
+    }
+
+    validateToolRequest(clientId: string, requestId: string) {
+        const item = this.pending.get(requestId);
+        if (!item || item.clientId !== clientId) throw new Error("请求已取消或画布绑定已变更，拒绝执行");
+        if (item.state === "unknown") throw new Error("请求已处于未知状态，受租约保护，拒绝执行");
+        if (item.binding && !this.mcpConnections.valid(item.binding)) throw new Error("绑定已被接管，拒绝旧请求");
+        if (item.projectId !== this.canvasStates.get(clientId)?.projectId) throw new Error("网页已切换画布，拒绝旧请求");
+        item.state = "executing";
+        if (item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "executing", item.binding.revision);
+    }
+
+    /** 本地素材导入请求中的 assetId 只属于本请求；先按真实路径重新校验再返回给网页。 */
+    async localAssetRequestIds(clientId: string, requestId: string) {
+        const item = this.pending.get(requestId);
+        if (!item || !item.localAssetIds || item.clientId !== clientId || !this.clients.has(clientId)) throw new Error("本地素材导入请求已失效或不属于当前网页");
+        for (const id of item.localAssetIds) await this.localAssets.resolve(id);
+        return item.localAssetIds;
     }
 
     /** 返回 Canvas Agent 当前连接状态。 */
     health() {
-        return { ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, codexBusy: this.codexState.busy, conversation: this.conversationStateSnapshot };
+        return { ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, codexBusy: this.codexState.busy, webAgentEnabled: this.webAgentEnabled, occupant: this.getOccupant(), conversation: this.conversationStateSnapshot };
     }
 
     /** 返回 Codex 是否正在执行任务。 */
@@ -146,9 +341,9 @@ export class CanvasSession {
         this.preparedConversationThreadId = threadId;
         const statuses = this.conversationState.mcpStatuses;
         const hasPending = !this.conversationInventoryComplete || Object.values(statuses).some((item) => item.status === "starting");
-        const requiredFailure = statuses["infinite-canvas"]?.status !== "ready";
+        const requiredFailure = statuses.sudio?.status !== "ready";
         const hasFailure = Object.values(statuses).some((item) => item.status === "failed" || item.status === "cancelled");
-        const requiredFailureDetail = statuses["infinite-canvas"]?.error;
+        const requiredFailureDetail = statuses.sudio?.error;
         return this.updateConversation({
             threadId,
             status: hasPending ? "preparing" : requiredFailure ? "failed" : hasFailure ? "warning" : "ready",
@@ -279,7 +474,7 @@ export class CanvasSession {
                 this.clientFocusOrder.set(clientId, ++this.focusSequence);
             }
         }
-        sendEvent(res, "hello", { ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, clientId, workspace: { activeThreadId }, conversation: this.conversationStateSnapshot, codex: this.codexState, pendingApprovals: this.codexPendingApprovals });
+        sendEvent(res, "hello", { ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, clientId, workspace: { activeThreadId }, conversation: this.conversationStateSnapshot, codex: this.codexState, webAgentEnabled: this.webAgentEnabled, occupant: this.getOccupant(), pendingApprovals: this.codexPendingApprovals });
         if (!statusOnly && activeThreadId && this.codexState.threadId === activeThreadId) this.codexReplayEvents.forEach((event) => sendEvent(res, event.type, event.payload));
         const timer = setInterval(() => sendEvent(res, "ping", { time: Date.now() }), 15000);
         res.on("close", () => {
@@ -289,12 +484,25 @@ export class CanvasSession {
             this.clients.delete(clientId);
             this.clientFocusOrder.delete(clientId);
             this.canvasStates.delete(clientId);
+            this.mcpConnections.invalidateClientBindings(clientId, true);
             this.pending.forEach((item, requestId) => {
                 if (item.clientId !== clientId) return;
-                this.pending.delete(requestId);
-                item.reject(new Error("请求页面已断开"));
+                if (item.state === "executing" || item.state === "unknown") {
+                    item.state = "unknown";
+                    const isCurrent = item.binding && this.mcpConnections.getBinding(item.binding.sessionId)?.revision === item.binding.revision;
+                    if (isCurrent && item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "unknown", item.binding.revision);
+                    logger.warn("Executing tool entered unknown state due to client disconnect", { requestId, clientId });
+                    item.reject(new Error("请求页面已断开"));
+                } else {
+                    item.state = "failed";
+                    this.pending.delete(requestId);
+                    const isCurrent = item.binding && this.mcpConnections.getBinding(item.binding.sessionId)?.revision === item.binding.revision;
+                    if (isCurrent && item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "failed", item.binding.revision);
+                    item.reject(new Error("请求页面已断开"));
+                }
             });
             if (this.activeClientId === clientId) this.activeClientId = [...this.clients.keys()].sort((a, b) => (this.clientFocusOrder.get(b) || 0) - (this.clientFocusOrder.get(a) || 0))[0] || "";
+            this.emitAll("connection_changed", this.connectionStatus());
         });
     }
 
@@ -305,13 +513,51 @@ export class CanvasSession {
         return snapshot;
     }
 
-    /** 保存指定网页上报的最新画布快照。 */
-    updateState(body: unknown, clientId?: string) {
+    /** 保存指定网页上报的最新画布快照，并返回包含 clientId、projectId、revision 的回执。 */
+    updateState(body: unknown, clientId?: string): { clientId: string; projectId: string; revision: string } | null {
         const targetClientId = clientId || this.activeClientId;
-        if (!targetClientId || !this.clients.has(targetClientId)) return;
-        const state = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId: targetClientId } as CanvasSnapshot;
+        if (!targetClientId || !this.clients.has(targetClientId)) return null;
+        const payload = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
+        const projectId = typeof payload.projectId === "string" ? payload.projectId : "";
+        const revision = typeof payload.revision === "string" && payload.revision.trim()
+            ? payload.revision.trim()
+            : typeof payload.revision === "number"
+                ? String(payload.revision)
+                : typeof payload.canvasRevision === "number" || typeof payload.canvasRevision === "string"
+                    ? String(payload.canvasRevision)
+                    : typeof payload.operationId === "string" && payload.operationId
+                        ? payload.operationId
+                        : (projectId ? `rev-${crypto.randomUUID()}` : "");
+
+        const previousState = this.canvasStates.get(targetClientId);
+        const prevProjectId = previousState?.projectId || "";
+        // 4 切换画布要永久失效旧绑定，切回也不复活；执行中副作用仍保留 unknown 提示
+        if (prevProjectId && projectId !== prevProjectId) {
+            logger.info("Canvas switched for client, permanently invalidating bindings", { clientId: targetClientId, prevProjectId, nextProjectId: projectId });
+            this.mcpConnections.invalidateClientBindings(targetClientId, true);
+            this.pending.forEach((item, requestId) => {
+                if (item.clientId === targetClientId) {
+                    if (item.state === "executing" || item.state === "unknown") {
+                        item.state = "unknown";
+                        const isCurrent = item.binding && this.mcpConnections.getBinding(item.binding.sessionId)?.revision === item.binding.revision;
+                        if (isCurrent && item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "unknown", item.binding.revision);
+                        item.reject(new Error("网页已切换画布，执行中或未知状态操作保持未知状态"));
+                    } else {
+                        item.state = "failed";
+                        this.pending.delete(requestId);
+                        const isCurrent = item.binding && this.mcpConnections.getBinding(item.binding.sessionId)?.revision === item.binding.revision;
+                        if (isCurrent && item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "failed", item.binding.revision);
+                        item.reject(new Error("网页已切换画布，旧请求已失效"));
+                    }
+                }
+            });
+            this.emitAll("connection_changed", this.connectionStatus());
+        }
+
+        const state = { ...payload, clientId: targetClientId, projectId, revision } as CanvasSnapshot & { revision?: string };
         this.canvasStates.set(targetClientId, state);
-        logger.debug("Canvas state updated", { clientId: targetClientId, nodes: state.nodes?.length || 0, connections: state.connections?.length || 0 });
+        logger.debug("Canvas state updated", { clientId: targetClientId, projectId, revision, nodes: state.nodes?.length || 0, connections: state.connections?.length || 0 });
+        return { clientId: targetClientId, projectId, revision };
     }
 
     /** 将指定网页设为最近激活的工具目标。 */
@@ -375,9 +621,35 @@ export class CanvasSession {
     resolveResult(clientId: string, body: { requestId?: string; error?: string; result?: unknown }) {
         const item = body.requestId ? this.pending.get(body.requestId) : null;
         if (!item || !body.requestId || item.clientId !== clientId) return false;
+
+        const isBindingRevoked = item.binding ? !this.mcpConnections.valid(item.binding) : false;
+        const isProjectMismatch = item.projectId !== this.canvasStates.get(clientId)?.projectId;
+        const isUnknown = item.state === "unknown";
+
+        // late result 属于 unknown 或已失效，应拒绝且保留 unknown 状态，不让拒绝旧结果解除租约
+        if (isUnknown || isBindingRevoked || isProjectMismatch) {
+            logger.warn("Rejecting late canvas tool result without releasing lease", {
+                requestId: body.requestId,
+                clientId,
+                state: item.state,
+                isUnknown,
+                isBindingRevoked,
+                isProjectMismatch,
+            });
+            return false;
+        }
+
         this.pending.delete(body.requestId);
         logger.debug("Canvas tool result received", { clientId, requestId: body.requestId, error: body.error, result: body.result });
-        body.error ? item.reject(new Error(body.error)) : item.resolve(body.result);
+        if (body.error) {
+            item.state = "failed";
+            if (item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "failed", item.binding.revision);
+            item.reject(new Error(body.error));
+        } else {
+            item.state = "completed";
+            if (item.binding) this.syncConnectionExecutionState(item.binding.sessionId, "completed", item.binding.revision);
+            item.resolve(body.result);
+        }
         return true;
     }
 
@@ -441,6 +713,8 @@ export class CanvasSession {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
         logger.info("MCP tool called", { name, input: rawInput, targetClientId: this.targetClientId });
         const input = parseToolInput(name, rawInput) as Record<string, unknown>;
+        if (name === "local_assets_search") return await this.localAssets.search(input as { keyword?: string; kind?: "all" | "image" | "video" | "audio" });
+        if (name === "canvas_import_local_assets") return await this.importLocalAssets(input as { assetIds: string[]; x?: number; y?: number });
         if (SITE_TOOLS.has(name)) {
             if (!this.clients.size) throw new Error("当前没有已连接网页");
             const operationId = name === "assets_add" ? this.canvasOperationId(name, input) : undefined;
@@ -467,6 +741,21 @@ export class CanvasSession {
         const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable((value as Record<string, unknown>)[key])])) : value;
         const digest = crypto.createHash("sha256").update(JSON.stringify({ scope, name, input: stable(input) })).digest("hex").slice(0, 48);
         return `agent_${digest}`;
+    }
+
+    /** 解析本地素材临时 ID，并把导入请求交给当前网页创建节点。 */
+    private async importLocalAssets(input: { assetIds: string[]; x?: number; y?: number }) {
+        if (!this.clients.size) throw new Error("当前没有已连接画布");
+        const ids = Array.from(new Set(input.assetIds || []));
+        if (!ids.length) throw new Error("请先提供要导入的 assetIds");
+        const assets = [];
+        for (const id of ids) assets.push((await this.localAssets.resolve(id)).asset);
+        const operationId = this.canvasOperationId("canvas_import_local_assets", input);
+        return await this.requestCanvasTool(
+            "canvas_import_local_assets",
+            { assets, x: Number(input.x ?? nextCanvasX(this.canvasState)), y: Number(input.y ?? 0), projectId: this.canvasStates.get(this.targetClientId)?.projectId },
+            { operationId, localAssetIds: ids },
+        );
     }
 
     /** 将当前 turn 的附件转换为画布图片节点。 */
@@ -497,20 +786,64 @@ export class CanvasSession {
     }
 
     /** 向目标网页发送工具请求并等待调用结果。 */
-    private async requestCanvasTool(name: ToolName, input: Record<string, unknown>, operationId?: string) {
+    private async requestCanvasTool(name: ToolName, input: Record<string, unknown>, operationId?: string | { operationId?: string; localAssetIds?: string[] }) {
+        const options = typeof operationId === "string" ? { operationId } : operationId || {};
         const requestId = crypto.randomUUID();
         const clientId = this.targetClientId;
         const client = this.clients.get(clientId);
         if (!client) throw new Error("当前没有已连接画布");
-        sendEvent(client, "tool_call", { requestId, name, input, ...(operationId ? { operationId } : {}) });
         logger.debug("Canvas tool request sent", { requestId, name, input, clientId });
         return await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.pending.delete(requestId);
-                logger.warn("Canvas tool request timed out", { requestId, name, clientId });
+            const binding = this.toolScope.getStore();
+            let timer: ReturnType<typeof setTimeout> | null = null;
+            const item: PendingRequest = {
+                clientId,
+                localAssetIds: options.localAssetIds,
+                projectId: this.canvasStates.get(clientId)?.projectId,
+                binding,
+                state: "idle",
+                resolve: (value) => {
+                    if (timer) clearTimeout(timer);
+                    item.state = "completed";
+                    this.pending.delete(requestId);
+                    const isCurrent = binding && this.mcpConnections.getBinding(binding.sessionId)?.revision === binding.revision;
+                    if (binding && isCurrent) this.syncConnectionExecutionState(binding.sessionId, "completed", binding.revision);
+                    resolve(value);
+                },
+                reject: (error) => {
+                    if (timer) clearTimeout(timer);
+                    // 保持 unknown，不要被 reject 回调覆盖为 failed
+                    if (item.state !== "unknown") {
+                        item.state = "failed";
+                        this.pending.delete(requestId);
+                        const isCurrent = binding && this.mcpConnections.getBinding(binding.sessionId)?.revision === binding.revision;
+                        if (binding && isCurrent) this.syncConnectionExecutionState(binding.sessionId, "failed", binding.revision);
+                    }
+                    reject(error);
+                },
+            };
+            this.pending.set(requestId, item);
+
+            timer = setTimeout(() => {
+                const current = this.pending.get(requestId);
+                logger.warn("Canvas tool request timed out", { requestId, name, clientId, state: current?.state });
+                if (current) {
+                    const isCurrent = binding && this.mcpConnections.getBinding(binding.sessionId)?.revision === binding.revision;
+                    // pending timeout 中未执行请求与执行中请求分开，只有已执行才 unknown
+                    if (current.state === "executing") {
+                        current.state = "unknown";
+                        if (binding && isCurrent) this.syncConnectionExecutionState(binding.sessionId, "unknown", binding.revision);
+                        logger.warn("Executing tool entered unknown state due to timeout", { requestId });
+                    } else {
+                        current.state = "failed";
+                        this.pending.delete(requestId);
+                        if (binding && isCurrent) this.syncConnectionExecutionState(binding.sessionId, "failed", binding.revision);
+                    }
+                }
                 reject(new Error("画布操作超时"));
             }, 30000);
-            this.pending.set(requestId, { clientId, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });
+
+            sendEvent(client, "tool_call", { requestId, name, input, projectId: item.projectId, ...(options.operationId ? { operationId: options.operationId } : {}) });
         });
     }
 }

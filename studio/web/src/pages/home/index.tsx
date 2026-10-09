@@ -49,10 +49,10 @@ export default function IndexPage() {
                         <Trans i18nKey="home.description" components={{ canvas: <Highlighter action="underline" color="#FF9800" />, content: <Highlighter action="highlight" color="#87CEFA" /> }} />
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-                        <Button type="primary" size="large" onClick={() => navigate(`/${primaryTool.slug}`)} icon={<ArrowRight className="size-4" />} iconPlacement="end">
+                        <Button type="primary" size="large" onClick={() => navigate(primaryTool.path)} icon={<ArrowRight className="size-4" />} iconPlacement="end">
                             {t("home.start")}
                         </Button>
-                        <Button size="large" onClick={() => navigate("/canvas")}>
+                        <Button size="large" onClick={() => navigate("/sudio")}>
                             {t("home.openCanvas")}
                         </Button>
                     </div>

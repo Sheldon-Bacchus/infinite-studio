@@ -10,6 +10,8 @@ import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { discoverLocalAgentBootstrap } from "@/services/api/canvas-agent";
+import { isLocalWorkspaceMode } from "@/services/api/local-workspace";
 
 export function AppTopNav() {
     const { t } = useTranslation();
@@ -22,14 +24,27 @@ export function AppTopNav() {
     const connectAgent = useAgentStore((state) => state.connectAgent);
     const togglePanel = useAgentStore((state) => state.togglePanel);
     const panelOpen = useAgentStore((state) => state.panelOpen);
-    const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
+    const hideHeader = /^\/sudio\/[^/]+/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
-    const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
+    const activeToolSlug = navigationTools.some((tool) => tool.path === `/${slug}`) ? (navigationTools.find((tool) => tool.path === `/${slug}`)!.slug as NavigationToolSlug) : undefined;
 
     useEffect(() => {
-        if (autoConnectRef.current || agentEnabled || agentConnected || !agentToken.trim()) return;
+        if (autoConnectRef.current || agentEnabled || agentConnected || (!isLocalWorkspaceMode && !agentToken.trim())) return;
         autoConnectRef.current = true;
-        connectAgent({ silent: true });
+        void (async () => {
+            const current = useAgentStore.getState();
+            const localEndpoint = /^http:\/\/127\.0\.0\.1:1737[12]\/?$/.test(current.url);
+            if (isLocalWorkspaceMode && localEndpoint) {
+                const config = await discoverLocalAgentBootstrap();
+                if (useAgentStore.getState().enabled) return;
+                if (!config?.url || !config.token) {
+                    current.setAgentState({ connectError: "未找到片场 Agent 配置，请在桌面服务管理器启动 Agent 后点击连接" });
+                    return;
+                }
+                current.setAgentState({ url: config.url, token: config.token });
+            }
+            connectAgent({ silent: true });
+        })();
     }, [agentConnected, agentEnabled, agentToken, connectAgent]);
 
     return (
@@ -42,8 +57,8 @@ export function AppTopNav() {
                                 <span
                                     className="size-5 shrink-0 bg-current"
                                     style={{
-                                        mask: "url(/logo.svg) center / contain no-repeat",
-                                        WebkitMask: "url(/logo.svg) center / contain no-repeat",
+                                        mask: "url(/studio-logo.svg) center / contain no-repeat",
+                                        WebkitMask: "url(/studio-logo.svg) center / contain no-repeat",
                                     }}
                                 />
                                 <span className="text-base font-medium">{t("meta.title")}</span>
@@ -66,7 +81,7 @@ export function AppTopNav() {
                                     return (
                                         <Link
                                             key={tool.slug}
-                                            to={`/${tool.slug}`}
+                                            to={tool.path}
                                             className={cn(
                                                 "relative flex h-14 shrink-0 items-center gap-2 text-sm leading-6 transition after:absolute after:inset-x-0 after:bottom-0 after:h-px",
                                                 active

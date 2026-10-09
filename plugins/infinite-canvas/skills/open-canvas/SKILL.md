@@ -1,58 +1,35 @@
 ---
 name: open-canvas
-description: 打开 Infinite Canvas 在线或本地画布，并自动连接本地 Canvas Agent。用户要求打开、启动、进入或使用 Infinite Canvas 画布时使用。
+description: 打开本仓库的无限片场（sudio）并自动连接本地 Agent。用户要求打开、启动、进入或使用无限片场时使用。
 ---
 
-# Open Infinite Canvas
+# 打开无限片场
 
-默认打开在线版。只有用户明确要求使用本地项目时，才启动本地前端。
+只使用本仓库的本地前端和 Agent。
 
-## 在线版
+1. 若 `studio/web` 尚未运行，在仓库根目录执行：
 
-1. 启动本地 Canvas Agent 并保持运行：
-
-```bash
-npx -y @basketikun/canvas-agent@latest
+```powershell
+Set-Location E:/all-agent-workspace/infinite-studio/studio/web
+npm run dev -- --host 127.0.0.1 --port 43863 --strictPort
 ```
 
-2. 从启动输出取得 `Local URL` 和 `Connect token`。
+已有前端服务时直接复用，不重复启动。
 
-3. 在 Codex 右侧浏览器打开：
+2. 启动本地 Agent：
 
-```text
-https://canvas.best/canvas?mode=new#agentUrl=<Local URL>&agentToken=<Connect token>
+```powershell
+powershell.exe -NoProfile -File E:/all-agent-workspace/infinite-studio/canvas-agent/start-local.ps1
 ```
 
-## 本地版
+从启动日志复制 `片场自动连接地址`，直接在 Codex 浏览器打开。该地址已经带有 `agentUrl` 和 `agentToken`，正常流程无需手填 Token。
 
-1. 在 Infinite Canvas 项目中启动前端，并使用 Vite 输出的 `Local` 地址：
+MCP-only 模式使用：
 
-```bash
-cd web
-bun install
-bun run dev
+```powershell
+powershell.exe -NoProfile -File E:/all-agent-workspace/infinite-studio/canvas-agent/start-local.ps1 -Mcp
 ```
 
-2. 启动本地 Canvas Agent：
+MCP-only 进程只提供工具协议，不启动网页 HTTP 服务；网页连接仍需普通 Agent。
 
-```bash
-npx -y @basketikun/canvas-agent@latest
-```
-
-3. 从启动输出取得 `Local URL` 和 `Connect token`，在 Codex 右侧浏览器打开：
-
-```text
-<Vite Local 地址>/canvas?mode=new#agentUrl=<Local URL>&agentToken=<Connect token>
-```
-
-## MCP 与连接地址
-
-插件在新的 Codex 任务中加载时会自动启动 `npx -y @basketikun/canvas-agent@latest mcp`。这个 MCP 进程负责提供画布工具，不提供网页连接服务；
-上面启动的普通 Canvas Agent 负责提供 `Local URL` 和 `Connect token`。两个进程读取同一份本地配置，因此不需要用户手动填写地址或 token。
-
-## 打开模式
-
-用户没有明确指定打开方式时，始终使用 `mode=new` 新建画布。只有用户明确要求时才替换为：
-
-- 最近画布：`mode=recent`
-- 自己选择：`mode=choose`
+打开模式默认使用 `mode=new`。用户明确指定时使用 `mode=choose` 或 `mode=recent`；保留启动日志自动连接地址中的模式语义。

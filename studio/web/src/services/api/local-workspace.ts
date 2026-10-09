@@ -163,6 +163,7 @@ export function isAsset(value: unknown): value is Asset {
     if (value.kind === "text") return typeof value.data.content === "string";
     if (value.kind === "image") return typeof value.data.dataUrl === "string" && isOptionalString(value.data.storageKey) && isOptionalString(value.data.fileId) && isFiniteNumber(value.data.width) && isFiniteNumber(value.data.height) && isFiniteNumber(value.data.bytes) && typeof value.data.mimeType === "string";
     if (value.kind === "video") return typeof value.data.url === "string" && isOptionalString(value.data.storageKey) && isOptionalString(value.data.fileId) && isFiniteNumber(value.data.width) && isFiniteNumber(value.data.height) && isFiniteNumber(value.data.bytes) && typeof value.data.mimeType === "string";
+    if (value.kind === "audio") return typeof value.data.url === "string" && isOptionalString(value.data.storageKey) && isOptionalString(value.data.fileId) && (value.data.duration === undefined || isFiniteNumber(value.data.duration)) && isFiniteNumber(value.data.bytes) && typeof value.data.mimeType === "string";
     return false;
 }
 
@@ -202,7 +203,7 @@ function isCanvasNodeMetadata(value: unknown) {
     if (value.generationMode !== undefined && !["text", "image", "video", "audio"].includes(String(value.generationMode))) return false;
     if (value.generationType !== undefined && value.generationType !== "generation" && value.generationType !== "edit") return false;
     if (value.reasoningEffort !== undefined && !["auto", "low", "medium", "high", "xhigh"].includes(String(value.reasoningEffort))) return false;
-    if (value.videoTaskProvider !== undefined && value.videoTaskProvider !== "openai" && value.videoTaskProvider !== "gemini") return false;
+    if (value.videoTaskProvider !== undefined && value.videoTaskProvider !== "openai" && value.videoTaskProvider !== "gemini" && value.videoTaskProvider !== "autodl") return false;
     if (value.freeResize !== undefined && typeof value.freeResize !== "boolean") return false;
     if (value.interactive !== undefined && typeof value.interactive !== "boolean") return false;
     if (value.references !== undefined && !isArrayOf(isString)(value.references)) return false;

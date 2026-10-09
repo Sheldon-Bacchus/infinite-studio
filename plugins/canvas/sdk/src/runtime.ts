@@ -22,6 +22,11 @@ export function getReact(): typeof React {
     return getRuntime().React as unknown as typeof React;
 }
 
+/** 取宿主注入的作品仓库受限能力(含当前作品、Asset 读写与归档)。 */
+export function getWorks(): PluginRuntime["works"] {
+    return getRuntime().works;
+}
+
 // --- 类型完整的 hooks 转发:签名取自 @types/react,运行时转发到宿主 React ---
 // 这样插件作者可以直接 `import { useState } from "@infinite-canvas/plugin-sdk"`,
 // 无需再从 runtime 里解构 React。

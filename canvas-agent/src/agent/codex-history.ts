@@ -685,8 +685,8 @@ function changeKind(value: unknown) {
 /** 将站点路由转换为中文页面名称。 */
 function routeName(path: string) {
     if (path === "/") return "首页";
-    if (path === "/canvas") return "画布页面";
-    if (path.startsWith("/canvas/")) return "指定画布";
+    if (path === "/sudio" || path === "/canvas") return "画布页面";
+    if (path.startsWith("/sudio/") || path.startsWith("/canvas/")) return "指定画布";
     if (path.startsWith("/image")) return "生图工作台";
     if (path.startsWith("/video")) return "视频工作台";
     if (path.startsWith("/prompts")) return "提示词中心";
@@ -735,6 +735,8 @@ function toolName(name: string) {
     if (name === "prompts_search") return "搜索提示词";
     if (name === "assets_list") return "资产列表";
     if (name === "assets_add") return "添加资产";
+    if (name === "local_assets_search") return "搜索本地素材";
+    if (name === "canvas_import_local_assets") return "导入本地素材";
     if (name === "generation_get_status") return "生成任务状态";
     return name ? `调用工具：${name}` : "工具操作";
 }

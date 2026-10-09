@@ -11,7 +11,7 @@ export type AgentCanvasReference = Pick<CanvasResourceReference, "nodeId" | "lab
 export type AgentSkillReference = { name: string; path: string; displayName?: string };
 export type AgentChatItem = { id: string; itemId?: string; clientMessageId?: string; threadId?: string; turnId?: string; role: AgentChatRole; title?: string; text: string; meta?: string; detail?: unknown; attachments?: AgentMessageAttachment[]; canvasReferences?: AgentCanvasReference[]; skill?: AgentSkillReference; streamId?: string; activityItems?: Record<string, string> };
 export type AgentEventLog = { id: string; time: string; title: string; text: string; raw?: unknown };
-export type AgentPendingToolCall = { requestId: string; operationId?: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
+export type AgentPendingToolCall = { requestId: string; operationId?: string; projectId?: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
 export type AgentPermissionMode = "request" | "automatic" | "full";
 export type AgentReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type AgentModel = {
@@ -81,6 +81,12 @@ type AgentStore = {
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
     pendingApprovals: AgentPendingApproval[];
+    serviceAvailable: boolean;
+    historyReady: boolean;
+    canvasSynced: boolean;
+    canvasSyncReceipt: { clientId: string; projectId: string; revision: string } | null;
+    webAgentEnabled: boolean;
+    occupant: string;
     setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
     openPanel: () => void;
     closePanel: () => void;
@@ -133,6 +139,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     connectError: "",
     pendingTool: null,
     pendingApprovals: [],
+    serviceAvailable: false,
+    historyReady: false,
+    canvasSynced: false,
+    canvasSyncReceipt: null,
+    webAgentEnabled: false,
+    occupant: i18n.t("agent.webSwitch.occupantIdle"),
     setAgentState: (patch) => set(patch),
     openPanel: () => set({ panelOpen: true, panelMounted: true, panelClosing: false }),
     closePanel: () => {
@@ -165,7 +177,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         agentSource = null;
         if (connectTimer) clearTimeout(connectTimer);
         connectTimer = null;
-        set({ enabled: false, connected: false, silentConnect: false, fragmentBootstrap: false, activity: i18n.t("agent.state.offline"), conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} }, bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
+        set({ enabled: false, connected: false, silentConnect: false, fragmentBootstrap: false, canvasSynced: false, canvasSyncReceipt: null, webAgentEnabled: false, occupant: i18n.t("agent.webSwitch.occupantIdle"), activity: i18n.t("agent.state.offline"), conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} }, bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
     },
     addMessage: (item) => set((state) => ({ messages: [...state.messages, item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),

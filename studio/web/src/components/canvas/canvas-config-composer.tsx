@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
-import { Button, Image } from "antd";
+import { Button, Image, Modal } from "antd";
 import { FileText, Group, Image as ImageIcon, Music2, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -9,23 +9,34 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
-import type { CanvasNodeData } from "@/types/canvas";
+import { buildNodeConfig } from "./canvas-config-node-panel";
+import { buildVideoInputCandidate } from "@/lib/canvas/canvas-video-inputs";
+import { useEffectiveConfig } from "@/stores/use-config-store";
+import { CanvasPromptChipInput, type CanvasPromptChipInputRef } from "./canvas-prompt-chip-input";
+import { buildVideoInputList } from "@/lib/canvas/canvas-resource-references";
+import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasSubject, type CanvasVideoBinding, type VideoInputItem } from "@/types/canvas";
 
 type CanvasConfigComposerProps = {
     nodeId: string;
     nodes: CanvasNodeData[];
+    subjects?: CanvasSubject[];
+    videoBindings?: CanvasVideoBinding[];
     value: string;
     inputs: NodeGenerationInput[];
     connectedNodes?: CanvasNodeData[];
+    connections?: CanvasConnection[];
+    generationMode?: CanvasGenerationMode;
     onChange: (value: string) => void;
     onClose: () => void;
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection?: (nodeId: string) => void;
+    onReferenceOrderChange?: (stableIds: string[]) => void;
 };
 
 type Token =
     | { type: "text"; value: string }
-    | { type: "reference"; nodeId: string };
+    | { type: "reference"; nodeId: string }
+    | { type: "stable"; token: string; label: string; isError?: boolean };
 
 type MentionState = {
     query: string;
@@ -33,15 +44,69 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNodes = [], onChange, onClose, onDisconnectReference, onStartReferenceSelection }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({
+    nodeId,
+    nodes,
+    subjects = [],
+    videoBindings = [],
+    value,
+    inputs,
+    connectedNodes = [],
+    connections = [],
+    generationMode,
+    onChange,
+    onClose,
+    onDisconnectReference,
+    onStartReferenceSelection,
+    onReferenceOrderChange,
+}: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
+    const chipInputRef = useRef<CanvasPromptChipInputRef>(null);
     const composingRef = useRef(false);
+    const lastRangeRef = useRef<Range | null>(null);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
+    const [resultCollapsed, setResultCollapsed] = useState(false);
+    const [resultExpanded, setResultExpanded] = useState(false);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const tokens = useMemo(() => parseComposerTokens(value), [value]);
+    const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+    const sourceNode = useMemo(
+        () => nodes.find((n) => n.id === nodeId) || ({ id: nodeId, type: CanvasNodeType.Config, metadata: { generationMode, videoBindings } } as CanvasNodeData),
+        [generationMode, nodeId, nodes, videoBindings]
+    );
+    const effectiveMode = generationMode || sourceNode.metadata?.generationMode || "image";
+    const isVideoMode = effectiveMode === "video";
+    const globalConfig = useEffectiveConfig();
+    const candidate = useMemo(() => isVideoMode ? buildVideoInputCandidate({ sourceNode, nodes, connections, subjects, config: buildNodeConfig(globalConfig, sourceNode, effectiveMode), prompt: value }) : null, [isVideoMode, sourceNode, nodes, connections, subjects, globalConfig, effectiveMode, value]);
+
+    const videoInputList = useMemo(() => {
+        if (!isVideoMode) return [];
+        return buildVideoInputList(sourceNode, nodes, connections, subjects, value, sourceNode.metadata?.model);
+    }, [connections, isVideoMode, nodes, sourceNode, subjects, value]);
+
+    const nonVideoInputList: VideoInputItem[] = useMemo(() => {
+        if (isVideoMode) return [];
+        return inputs.map((inp, idx) => ({
+            kind: inp.type === "group" ? "image" : inp.type,
+            stableId: `node:${inp.nodeId}`,
+            nodeId: inp.nodeId,
+            name: inp.title || `Resource ${idx + 1}`,
+            number: idx + 1,
+            referenced: value.includes(`@[node:${inp.nodeId}]`),
+            previewUrl: inp.type === "image" ? inp.image?.url : inp.type === "video" ? inp.video?.url : undefined,
+            text: inp.type === "text" ? inp.text : undefined,
+        }));
+    }, [inputs, isVideoMode, value]);
+
+    const activeInputList = isVideoMode ? videoInputList : nonVideoInputList;
+
+    const stableReferences = useMemo(() => [
+        ...subjects.map((subject) => ({ token: `@[subject:${subject.subjectId}]`, label: `Subject: ${subject.name}` })),
+        ...videoBindings.map((binding) => ({ token: `@[binding:${binding.bindingId}]`, label: `Binding: ${nodeById.get(binding.nodeId)?.title || binding.nodeId} · ${i18n.t(`canvas.videoInput.usages.${binding.usage}`)}` })),
+    ], [nodeById, subjects, videoBindings]);
+    const tokens = useMemo(() => parseComposerTokens(value, stableReferences), [stableReferences, value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const candidates = useMemo(() => {
         if (!mention) return [];
@@ -60,10 +125,25 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                 editor.append(document.createTextNode(token.value));
                 return;
             }
+            if (token.type === "stable") {
+                editor.append(createStableTokenChip(token.token, token.label, theme));
+                return;
+            }
             const input = referenceById.get(token.nodeId);
             if (input) editor.append(createReferenceChip(input, inputs, theme, setImagePreview));
         });
     }, [inputs, referenceById, theme, tokens]);
+
+    
+    const saveSelection = () => {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && editorRef.current) {
+            const range = selection.getRangeAt(0);
+            if (editorRef.current.contains(range.startContainer)) {
+                lastRangeRef.current = range.cloneRange();
+            }
+        }
+    };
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
@@ -112,6 +192,35 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
         onChange(serializeEditor(editor));
     };
 
+    const insertStableReference = (token: string, customLabel?: string) => {
+        const reference = stableReferences.find((item) => item.token === token) || { token, label: customLabel || token };
+        const editor = editorRef.current;
+        if (!editor) return;
+        editor.focus();
+        const chip = createStableTokenChip(reference.token, reference.label, theme);
+        const space = document.createTextNode(" ");
+        let range = lastRangeRef.current;
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
+            range = selection.getRangeAt(0);
+        }
+        if (range && editor.contains(range.startContainer)) {
+            range.deleteContents();
+            range.insertNode(space);
+            range.insertNode(chip);
+            range.setStartAfter(space);
+            range.collapse(true);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            lastRangeRef.current = range.cloneRange();
+        } else {
+            editor.append(chip, space);
+            placeCaretAtEnd(editor);
+            saveSelection();
+        }
+        onChange(serializeEditor(editor));
+    };
+
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
 
     return (
@@ -130,8 +239,44 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>
-            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
-            <div className="relative rounded-xl">
+            <CanvasNodeReferenceBar
+                nodeId={nodeId}
+                nodes={nodes}
+                connectedNodes={connectedNodes}
+                videoBindings={videoBindings}
+                subjects={subjects}
+                inputList={activeInputList}
+                onDisconnect={onDisconnectReference}
+                onStartSelection={onStartReferenceSelection}
+                onOrderChange={onReferenceOrderChange}
+                onInsertReference={(item) => {
+                    if (isVideoMode) {
+                        chipInputRef.current?.insertReference(item);
+                    } else {
+                        const input = referenceById.get(item.nodeId || "");
+                        if (input) {
+                            insertReference(input);
+                        } else {
+                            insertStableReference(item.stableId, item.name);
+                        }
+                    }
+                }}
+            />
+            <div className="mb-1 text-xs font-semibold">编辑当前提示词</div>
+            {isVideoMode ? (
+                <div className="relative rounded-xl border p-2" style={{ borderColor: theme.toolbar.border }}>
+                    <CanvasPromptChipInput
+                        ref={chipInputRef}
+                        value={value}
+                        references={videoInputList}
+                        onChange={onChange}
+                        placeholder={t("canvas.composer.placeholder")}
+                        className="thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-1 py-1 text-sm leading-7 outline-none"
+                        style={{ color: theme.node.text }}
+                    />
+                </div>
+            ) : (
+                <div className="relative rounded-xl">
                 {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
@@ -139,6 +284,8 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                     suppressContentEditableWarning
                     className="thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 text-sm leading-7 outline-none"
                     style={{ color: theme.node.text }}
+                    onClick={saveSelection}
+                    onKeyUp={saveSelection}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
                     }}
@@ -184,6 +331,25 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                 />
                 {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
             </div>
+            )}
+            {candidate ? (
+                <section className="mt-3 rounded-xl border p-3" style={{ borderColor: theme.toolbar.border }} aria-label="最终发送内容">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className="font-semibold">最终发送内容 · 只读</span>
+                        <div className="flex gap-2"><Button size="small" onClick={() => setResultCollapsed(!resultCollapsed)}>{resultCollapsed ? "展开" : "折叠"}</Button><Button size="small" onClick={() => setResultExpanded(true)}>放大</Button></div>
+                    </div>
+                    <div className="mb-2 text-xs opacity-70">已连接：{videoInputList.length} 项 · 本次发送：图片 {candidate.bindings.filter(item => item.mediaType === "image").length} / 视频 {candidate.bindings.filter(item => item.mediaType === "video").length} / 音频 {candidate.bindings.filter(item => item.mediaType === "audio").length} · 文本 {videoInputList.filter(item => item.kind === "text" && item.text?.trim()).length} · 实体 {new Set(candidate.bindings.map(item => item.subjectId).filter(Boolean)).size}</div>
+                    <div className="mb-2 text-xs opacity-70">来源：当前提示词{videoInputList.filter(item => item.kind === "text" && item.text?.trim()).map(item => ` + ${item.name}`).join("")}。编辑上方不会覆盖源文本。</div>
+                    {!resultCollapsed ? <div className="thin-scrollbar max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6">{renderFinalPrompt(candidate.compiledPrompt, candidate.unresolvedReferences)}</div> : null}
+                    <div className={`mt-2 text-xs ${candidate.issues.length ? "text-red-500" : "opacity-70"}`}>{candidate.issues.length ? `有 ${candidate.issues.length} 项问题，修正后再确认` : sourceNode.metadata?.confirmedVideoInput?.fingerprint === candidate.fingerprint ? "检查通过 · 输入已确认" : "检查通过 · 待确认"}</div>
+                    {candidate.issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="mt-2 text-xs text-red-500">{issue.message}</div>)}
+                    {candidate.unresolvedReferences.length ? <Button size="small" className="mt-2" onClick={() => onStartReferenceSelection?.(nodeId)} disabled={!onStartReferenceSelection}>选择资源修正引用</Button> : null}
+                </section>
+            ) : null}
+            <Modal title="最终发送内容 · 只读" open={resultExpanded} onCancel={() => setResultExpanded(false)} footer={null} width={760}>
+                <div className="max-h-[65vh] overflow-y-auto whitespace-pre-wrap break-words">{candidate ? renderFinalPrompt(candidate.compiledPrompt, candidate.unresolvedReferences) : null}</div>
+                {candidate?.issues.map((issue, index) => <div key={index} className="mt-2 text-red-500">{issue.message}</div>)}
+            </Modal>
             {imagePreview ? <Image src={imagePreview} alt={t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
@@ -280,7 +446,9 @@ function serializeNodes(nodes: NodeListOf<ChildNode>) {
         if (node.nodeType === Node.TEXT_NODE) result += node.textContent || "";
         if (!(node instanceof HTMLElement)) return;
         const nodeId = node.dataset.referenceNodeId;
-        if (nodeId) result += `@[node:${nodeId}]`;
+        const token = node.dataset.referenceToken;
+        if (token) result += token;
+        else if (nodeId) result += `@[node:${nodeId}]`;
         else if (node.tagName === "BR") result += "\n";
         else result += serializeNodes(node.childNodes);
     });
@@ -329,7 +497,7 @@ function adjacentReferenceNode(range: Range, key: string) {
 function findReferenceSibling(node: Node, previous: boolean, includeSelf = false): HTMLElement | null {
     let current: Node | null = includeSelf ? node : previous ? node.previousSibling : node.nextSibling;
     while (current && current.nodeType === Node.TEXT_NODE && !(current.textContent || "").trim()) current = previous ? current.previousSibling : current.nextSibling;
-    return current instanceof HTMLElement && current.dataset.referenceNodeId ? current : null;
+    return current instanceof HTMLElement && (current.dataset.referenceNodeId || current.dataset.referenceToken) ? current : null;
 }
 
 function textBeforeCaret() {
@@ -356,17 +524,38 @@ function placeCaretAtEnd(element: HTMLElement) {
     selection?.addRange(range);
 }
 
-function parseComposerTokens(value: string): Token[] {
+function parseComposerTokens(value: string, stableReferences: Array<{ token: string; label: string }>): Token[] {
     const tokens: Token[] = [];
     let lastIndex = 0;
-    for (const match of value.matchAll(CONFIG_REFERENCE_PATTERN)) {
+    const stableByToken = new Map(stableReferences.map((reference) => [reference.token, reference]));
+    const pattern = /@\[(node|subject|binding):([^\]]+)\]/g;
+    for (const match of value.matchAll(pattern)) {
         if (match.index === undefined) continue;
         if (match.index > lastIndex) tokens.push({ type: "text", value: value.slice(lastIndex, match.index) });
-        tokens.push({ type: "reference", nodeId: match[1] });
+        if (match[1] === "node") tokens.push({ type: "reference", nodeId: match[2] });
+        else {
+            const reference = stableByToken.get(match[0]);
+            if (reference) tokens.push({ type: "stable", token: reference.token, label: reference.label });
+            else tokens.push({ type: "text", value: match[0] });
+        }
         lastIndex = match.index + match[0].length;
     }
     if (lastIndex < value.length) tokens.push({ type: "text", value: value.slice(lastIndex) });
     return tokens;
+}
+
+function createStableTokenChip(token: string, label: string, theme: (typeof canvasThemes)[keyof typeof canvasThemes]) {
+    const wrapper = document.createElement("span");
+    wrapper.contentEditable = "false";
+    wrapper.dataset.referenceToken = token;
+    wrapper.className = "mx-px inline-flex h-7 max-w-48 items-center justify-center overflow-hidden rounded-md border px-1.5 text-xs leading-none align-middle";
+    Object.assign(wrapper.style, chipStyle(theme));
+    wrapper.title = token;
+    const text = document.createElement("span");
+    text.className = "block truncate";
+    text.textContent = label;
+    wrapper.appendChild(text);
+    return wrapper;
 }
 
 function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[]) {
@@ -377,4 +566,12 @@ function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[]
 
 function chipStyle(theme: (typeof canvasThemes)[keyof typeof canvasThemes]): CSSProperties {
     return { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text };
+}
+
+function renderFinalPrompt(prompt: string, unresolved: string[]) {
+    if (!prompt.trim()) return "暂无发送内容";
+    const refs = [...new Set(unresolved)].filter(Boolean).sort((a, b) => b.length - a.length);
+    if (!refs.length) return prompt;
+    const pattern = new RegExp(`(${refs.map(ref => ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g");
+    return prompt.split(pattern).map((part, index) => refs.includes(part) ? <mark key={index} className="rounded bg-red-500/15 px-1 text-red-500" title="引用未解析，请检查绑定">{part}</mark> : part);
 }

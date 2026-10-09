@@ -8,8 +8,9 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
+import { CanvasNodeType, type CanvasNodeData, type CanvasSubject, type ViewportTransform } from "@/types/canvas";
 import type { CanvasNodeToolbarItem } from "@/types/canvas-plugin";
+import { CanvasNodeInputProvenance } from "./canvas-node-input-provenance";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
 
@@ -215,10 +216,26 @@ export function CanvasNodeHoverToolbar({
     );
 }
 
-export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeData | null; open: boolean; onClose: () => void }) {
+export function CanvasNodeInfoModal({
+    node,
+    open,
+    onClose,
+    nodes = [],
+    subjects = [],
+    onLocateNode,
+    defaultView = "info",
+}: {
+    node: CanvasNodeData | null;
+    open: boolean;
+    onClose: () => void;
+    nodes?: CanvasNodeData[];
+    subjects?: CanvasSubject[];
+    onLocateNode?: (nodeId: string) => void;
+    defaultView?: "info" | "provenance" | "json";
+}) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
-    const [view, setView] = useState<"info" | "json">("info");
+    const [view, setView] = useState<"info" | "provenance" | "json">(defaultView);
     const imageBytes = node?.type === CanvasNodeType.Image && node.metadata?.content ? getDataUrlByteSize(node.metadata.content) : 0;
     const batchCount = node?.type === CanvasNodeType.Image ? node.metadata?.images?.length || 0 : 0;
     const json = useMemo(() => {
@@ -236,8 +253,8 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
     }, [node]);
 
     useEffect(() => {
-        if (open) setView("info");
-    }, [node?.id, open]);
+        if (open) setView(defaultView);
+    }, [node?.id, open, defaultView]);
 
     const title = (
         <div className="flex items-center justify-between gap-4 pr-12">
@@ -245,9 +262,10 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
             <Segmented
                 size="small"
                 value={view}
-                onChange={(value) => setView(value as "info" | "json")}
+                onChange={(value) => setView(value as "info" | "provenance" | "json")}
                 options={[
                     { label: t("canvas.nodeToolbar.info"), value: "info" },
+                    { label: t("canvas.provenance.tabTitle") || "本次提交", value: "provenance" },
                     { label: "JSON", value: "json" },
                 ]}
             />
@@ -255,7 +273,15 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
     );
 
     return (
-        <Modal className="canvas-node-info-modal" title={title} open={open && Boolean(node)} centered footer={null} onCancel={onClose}>
+        <Modal
+            className="canvas-node-info-modal"
+            title={title}
+            open={open && Boolean(node)}
+            centered
+            width={view === "provenance" ? 640 : 520}
+            footer={null}
+            onCancel={onClose}
+        >
             {node ? (
                 <div className="h-[56vh] min-h-[360px] select-text text-sm" data-canvas-shortcuts-ignore>
                     {view === "info" ? (
@@ -275,6 +301,18 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                                     {node.metadata.errorDetails}
                                 </div>
                             ) : null}
+                        </div>
+                    ) : view === "provenance" ? (
+                        <div className="thin-scrollbar h-full overflow-auto pr-1">
+                            <CanvasNodeInputProvenance
+                                node={node}
+                                nodes={nodes}
+                                subjects={subjects}
+                                onLocateNode={(id) => {
+                                    onLocateNode?.(id);
+                                    onClose();
+                                }}
+                            />
                         </div>
                     ) : (
                         <pre className="thin-scrollbar h-full overflow-auto rounded-lg border p-3 text-xs leading-5" style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}>

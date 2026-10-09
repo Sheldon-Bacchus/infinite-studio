@@ -25,8 +25,154 @@ export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 
+export type CanvasMediaType = "image" | "audio" | "video";
+export type CanvasMediaUsage =
+    | "appearance" | "detail" | "scene" | "prop" | "storyboard" | "first_frame" | "last_frame"
+    | "voice_style" | "dialogue" | "music" | "ambience" | "sound_effect" | "original_audio"
+    | "action" | "camera" | "pacing" | "edit_source" | "continuation_source" | "keyframe_source";
+
+export type CanvasSubject = { subjectId: string; name: string; description: string };
+export type CanvasVideoBinding = {
+    bindingId: string;
+    subjectId?: string;
+    assetId: string;
+    nodeId: string;
+    mediaType: CanvasMediaType;
+    usage: CanvasMediaUsage;
+    order: number;
+};
+export type CanvasMediaRef = { storageKey: string; fileId?: string };
+export type CanvasVideoInputBinding = CanvasVideoBinding & { contentVersion: string; mimeType?: string; mediaRef: CanvasMediaRef };
+export type CanvasVideoGroupSnapshot = { groupId: string; memberNodeIds: string[] };
+export type CanvasVideoGenerationParams = {
+    mode: "frames" | "reference";
+    seconds: string;
+    size: string;
+    resolution: string;
+    aspectRatio: string;
+    generateAudio: boolean;
+    watermark: boolean;
+};
+export type CanvasVideoInputSnapshot = {
+    schemaVersion: 1;
+    snapshotId: string;
+    sourceNodeId: string;
+    adapterId: string;
+    adapterConfigFingerprint: string;
+    model: string;
+    prompt: string;
+    params: CanvasVideoGenerationParams;
+    groupMembers: CanvasVideoGroupSnapshot[];
+    bindings: CanvasVideoInputBinding[];
+    mapping?: VideoInputMappingRow[];
+    issues?: VideoInputIssue[];
+    fingerprint: string;
+};
+
+export type ReferencePlanProvenance = {
+    key: string;
+    stableId: string;
+    nodeId: string;
+    label: string;
+    title: string;
+    kind: "image" | "video" | "audio" | "text" | "subject";
+    usage?: string;
+    sourceType: "node" | "group_member" | "subject" | "binding";
+    groupTitle?: string;
+    groupNodeId?: string;
+    selectedImageId?: string;
+    selectedImageIdUnknown?: boolean;
+    fileId?: string;
+    storageKey?: string;
+    assetId?: string;
+    contentVersion?: string;
+    originalFilename?: string;
+    model?: string;
+    generationId?: string;
+    previewUrl?: string;
+    immutableThumbnail?: string;
+    text?: string;
+    status: "valid" | "unreferenced" | "unsupported" | "missing";
+    disabledReason?: string;
+};
+
+export type CanvasGenerationInputSnapshot = {
+    schemaVersion: 1;
+    snapshotId: string;
+    mode: CanvasGenerationMode;
+    prompt: string;
+    sourceNode?: {
+        nodeId: string;
+        type: CanvasNodeTypeId;
+        title: string;
+        workId?: string;
+        objectId?: string;
+        revisionId?: string;
+    };
+    model: string;
+    parameters: Record<string, unknown>;
+    references: ReferencePlanProvenance[];
+    createdAt: string;
+    videoInputSnapshot?: CanvasVideoInputSnapshot;
+    parentGenerationId?: string;
+};
+
+export type CanvasVideoInputCapabilities = {
+    adapterId: "openai-video-v1" | "gemini-video-v1" | "script-video-v1";
+    media: Partial<Record<CanvasMediaType, { usages: CanvasMediaUsage[]; maxCount: number }>>;
+};
+export type VideoInputIssue = { code: string; message: string; bindingId?: string; subjectId?: string; nodeId?: string };
+export type VideoInputItem = {
+    kind: "text" | "image" | "video" | "audio" | "subject";
+    stableId: string;
+    nodeId?: string;
+    name: string;
+    number: number;
+    h3Tag?: string;
+    referenced: boolean;
+    previewUrl?: string;
+    text?: string;
+    disabled?: boolean;
+    disabledReason?: string;
+};
+export type VideoInputMappingRow = {
+    tag: string;
+    name: string;
+    kind: "text" | "image" | "video" | "audio" | "subject";
+    bindingId?: string;
+    nodeId?: string;
+    previewUrl?: string;
+    selectedImageId?: string;
+    selectedImageIdUnknown?: boolean;
+    originalFilename?: string;
+    groupNodeId?: string;
+    groupTitle?: string;
+    subjectName?: string;
+    workflowField?: string;
+    status: "valid" | "unreferenced" | "unsupported" | "error" | "unverified";
+    statusText?: string;
+    source?: string;
+};
+export type CanvasVideoInputCandidate = {
+    sourceNodeId: string;
+    prompt: string;
+    compiledPrompt: string;
+    model: string;
+    adapterId?: string;
+    adapterConfigFingerprint: string;
+    params: CanvasVideoGenerationParams;
+    groupMembers: CanvasVideoGroupSnapshot[];
+    bindings: CanvasVideoInputBinding[];
+    unresolvedReferences: string[];
+    issues: VideoInputIssue[];
+    mapping: VideoInputMappingRow[];
+    fingerprint: string;
+};
+
 export type CanvasNodeImage = {
     id: string;
+    assetId?: string;
+    contentVersion?: string;
     status: CanvasNodeStatus;
     errorDetails?: string;
     content: string;
@@ -85,6 +231,15 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     videoTaskId?: string;
     videoTaskProvider?: "openai" | "gemini";
+    assetId?: string;
+    contentVersion?: string;
+    videoBindings?: CanvasVideoBinding[];
+    confirmedVideoInput?: { fingerprint: string; confirmedAt: string; snapshot: CanvasVideoInputSnapshot };
+    generationInputSnapshot?: CanvasVideoInputSnapshot | CanvasGenerationInputSnapshot;
+    generationHistoryIds?: string[];
+    parentGenerationId?: string;
+    referenceNodeOrder?: string[];
+    videoPromptPlainTextReferences?: string[];
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
     agentOperationId?: string;

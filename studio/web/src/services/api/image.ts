@@ -8,6 +8,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
 import { imageSizePresets, inferMediaScale } from "@/lib/media-size";
+import { AUTODL_CORE_WORKFLOWS } from "@/lib/autodl-video-settings";
 import type { ReferenceImage } from "@/types/image";
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
@@ -890,6 +891,9 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
 
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
     try {
+        if (config.apiFormat === "autodl") {
+            return [...AUTODL_CORE_WORKFLOWS];
+        }
         if (config.apiFormat === "gemini") {
             const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
             validateGeminiPayload(response.data);

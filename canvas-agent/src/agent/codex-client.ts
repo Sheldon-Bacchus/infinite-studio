@@ -4,11 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createAgentLogWriter } from "../utils/agent-runtime.js";
-import { VERSION } from "../config.js";
+import { VERSION, INTERNAL_MCP_TOKEN } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
 import { codexEventHistory, type CodexEventHistory } from "./codex-event-history.js";
-import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexSkillSelector, CodexTurnInput } from "./codex-protocol.js";
+import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexSkillSelector, CodexTurnInput, CodexTurn } from "./codex-protocol.js";
 import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
@@ -160,8 +160,24 @@ export class CodexAppClient {
     }
 
     /** 读取指定 Codex 线程。 */
-    readThread(threadId: string, includeTurns = true) {
-        return this.request("thread/read", { threadId, includeTurns });
+    async readThread(threadId: string, includeTurns = true) {
+        try {
+            return await this.request("thread/read", { threadId, includeTurns });
+        } catch (error) {
+            if (!includeTurns || !(error instanceof Error) || !error.message.includes("paginated threads do not support")) throw error;
+            const result = await this.request("thread/read", { threadId, includeTurns: false });
+            const turns: CodexTurn[] = [];
+            let cursor: string | null = null;
+            const seen = new Set<string>();
+            do {
+                const page: CodexRequestResult<"thread/turns/list"> = await this.request("thread/turns/list", { threadId, cursor, sortDirection: "asc", itemsView: "full" });
+                turns.push(...page.data);
+                cursor = page.nextCursor;
+                if (cursor && seen.has(cursor)) throw new Error("对话历史分页游标重复，停止读取以保留完整性");
+                if (cursor) seen.add(cursor);
+            } while (cursor);
+            return { thread: { ...result.thread, turns } };
+        }
     }
 
     /** 归档指定 Codex 线程。 */
@@ -784,7 +800,7 @@ function canvasAgentMcpCommand() {
 
 /** 生成 Codex app-server 使用的 MCP 配置。 */
 function codexConfig(permissionMode: AgentPermissionMode) {
-    return { model_reasoning_summary: "auto", ...(permissionMode === "automatic" ? { approvals_reviewer: "auto_review" } : {}), mcp_servers: { "infinite-canvas": { command: canvasAgentMcp.command, args: canvasAgentMcp.args, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: 90 } } };
+    return { model_reasoning_summary: "auto", ...(permissionMode === "automatic" ? { approvals_reviewer: "auto_review" } : {}), mcp_servers: { sudio: { command: canvasAgentMcp.command, args: canvasAgentMcp.args, env: { CANVAS_AGENT_INTERNAL: "1", CANVAS_AGENT_INTERNAL_TOKEN: INTERNAL_MCP_TOKEN }, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: 90 } } };
 }
 
 function threadSettings(permissionMode: AgentPermissionMode) {

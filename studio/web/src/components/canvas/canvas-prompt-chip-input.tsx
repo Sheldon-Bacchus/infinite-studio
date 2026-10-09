@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Image } from "antd";
-import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
+import { AlertCircle, FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import type { VideoInputItem } from "@/types/canvas";
+
+export type CanvasPromptChipInputRef = {
+    insertReference: (reference: CanvasResourceReference | VideoInputItem) => void;
+    focus: () => void;
+};
 
 type Props = {
     value: string;
-    references: CanvasResourceReference[];
+    references: (CanvasResourceReference | VideoInputItem)[];
     onChange: (value: string) => void;
     onSubmit?: () => void;
     className?: string;
@@ -27,26 +33,70 @@ type MentionState = {
 
 type Token =
     | { type: "text"; value: string }
-    | { type: "reference"; label: string };
+    | { type: "reference"; label: string; serializedValue: string; isError?: boolean };
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
-// Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+// Serialization converts chips back to reference tokens/labels.
+export const CanvasPromptChipInput = forwardRef<CanvasPromptChipInputRef, Props>(function CanvasPromptChipInput(
+    { value, references, onChange, onSubmit, className, style, placeholder },
+    ref,
+) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
-    // Track the last value emitted to the parent. An identical focused value is this component's own echo,
-    // so skip rebuilding to preserve the caret and IME. Rebuild external changes even while focused.
     const lastEmittedRef = useRef(value);
+    const lastRangeRef = useRef<Range | null>(null);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-    const activeReferences = useMemo(() => references.filter((item) => item.active), [references]);
-    const referenceByLabel = useMemo(() => new Map(activeReferences.map((item) => [item.label, item])), [activeReferences]);
-    // Match longer labels first so a shorter label cannot split a longer one.
-    const activeLabels = useMemo(() => Array.from(new Set(activeReferences.map((item) => item.label))).sort((a, b) => b.length - a.length), [activeReferences]);
-    const tokens = useMemo(() => parseTokens(value, activeLabels), [value, activeLabels]);
+    // Normalize references to a unified list with stable tokens
+    const activeReferences = useMemo(() => {
+        return references.filter((item) => "number" in item || item.active).map((item) => {
+            if ("kind" in item && "number" in item) {
+                // VideoInputItem
+                const vItem = item as VideoInputItem;
+                const token = `@[${vItem.stableId}]`;
+                const label = vItem.h3Tag ? `${vItem.h3Tag} · ${vItem.name}` : `文本 ${vItem.number} · ${vItem.name}`;
+                return {
+                    id: vItem.stableId,
+                    nodeId: vItem.nodeId || "",
+                    kind: vItem.kind as CanvasResourceReference["kind"],
+                    label,
+                    title: vItem.name,
+                    previewUrl: vItem.previewUrl,
+                    text: vItem.text,
+                    token,
+                    h3Tag: vItem.h3Tag,
+                    active: true,
+                };
+            }
+            const cRef = item as CanvasResourceReference;
+            return {
+                id: cRef.id,
+                nodeId: cRef.nodeId,
+                kind: cRef.kind,
+                label: cRef.label,
+                title: cRef.title,
+                previewUrl: cRef.previewUrl,
+                text: cRef.text,
+                token: cRef.token || cRef.label,
+                h3Tag: undefined as string | undefined,
+                active: cRef.active,
+            };
+        });
+    }, [references]);
+
+    const referenceByToken = useMemo(() => {
+        const map = new Map<string, (typeof activeReferences)[number]>();
+        activeReferences.forEach((r) => {
+            if (r.token) map.set(r.token, r);
+            map.set(r.label, r);
+        });
+        return map;
+    }, [activeReferences]);
+
+    const tokens = useMemo(() => parseTokens(value, activeReferences), [value, activeReferences]);
 
     const candidates = useMemo(() => {
         if (!mention) return [];
@@ -55,23 +105,67 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         return activeReferences.filter((item) => `${item.label} ${item.title} ${item.kind} ${item.text || ""}`.toLowerCase().includes(query));
     }, [mention, activeReferences]);
 
-    // Rebuild the DOM from value when unfocused, or when a focused value is an external change rather than an emitted echo.
+    const saveSelection = () => {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && editorRef.current) {
+            const range = selection.getRangeAt(0);
+            if (editorRef.current.contains(range.startContainer)) {
+                lastRangeRef.current = range.cloneRange();
+            }
+        }
+    };
+
+    // Rebuild or in-place update the DOM from value
     useEffect(() => {
         const editor = editorRef.current;
         if (!editor) return;
-        if (document.activeElement === editor && value === lastEmittedRef.current) return;
+
+        // When editor is focused, update chips in-place without resetting user's typing caret
+        if (document.activeElement === editor) {
+            const chips = editor.querySelectorAll<HTMLElement>("[data-ref-token]");
+            chips.forEach((chip) => {
+                const token = chip.dataset.refToken;
+                if (!token) return;
+                const ref = referenceByToken.get(token);
+                if (ref) {
+                    const textSpan = chip.querySelector<HTMLElement>(".block");
+                    if (textSpan) {
+                        textSpan.textContent = ref.h3Tag ? `${ref.h3Tag} ${ref.title}` : ref.label;
+                    }
+                    chip.title = ref.text || ref.title;
+                    if (chip.dataset.refError === "true") {
+                        delete chip.dataset.refError;
+                        chip.className = "mx-px inline-flex h-6 max-w-48 items-center gap-1 justify-center overflow-hidden rounded-md border px-1.5 text-xs leading-none align-middle";
+                        Object.assign(chip.style, { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text });
+                    }
+                } else {
+                    chip.dataset.refError = "true";
+                    chip.className = "mx-px inline-flex h-6 max-w-48 items-center gap-1 justify-center overflow-hidden rounded-md border border-red-500/60 bg-red-500/10 px-1.5 text-xs leading-none align-middle text-red-500";
+                    chip.title = `待核对或已断开的引用标记: ${token}`;
+                }
+            });
+            if (value === lastEmittedRef.current) return;
+        }
+
         editor.textContent = "";
         tokens.forEach((token) => {
             if (token.type === "text") {
                 editor.append(document.createTextNode(token.value));
                 return;
             }
-            const reference = referenceByLabel.get(token.label);
-            if (reference) editor.append(createReferenceChip(reference, theme, setImagePreview));
-            else editor.append(document.createTextNode(token.label));
+            if (token.isError) {
+                editor.append(createErrorChip(token.serializedValue, theme));
+                return;
+            }
+            const reference = referenceByToken.get(token.serializedValue) || referenceByToken.get(token.label);
+            if (reference) {
+                editor.append(createReferenceChip(reference, theme, setImagePreview));
+            } else {
+                editor.append(createErrorChip(token.serializedValue, theme));
+            }
         });
         lastEmittedRef.current = value;
-    }, [tokens, referenceByLabel, theme, value]);
+    }, [tokens, referenceByToken, theme, value]);
 
     const emit = (next: string) => {
         lastEmittedRef.current = next;
@@ -83,6 +177,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         if (!editor) return;
         emit(serializeEditor(editor));
         syncMention();
+        saveSelection();
     };
 
     const syncMention = () => {
@@ -101,28 +196,80 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         setActiveIndex(0);
     };
 
-    const insertReference = (reference: CanvasResourceReference) => {
+    const insertReference = (item: CanvasResourceReference | VideoInputItem) => {
+        if ("number" in item && item.disabled) return;
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
-        const chip = createReferenceChip(reference, theme, setImagePreview);
+
+        // Convert item to reference representation
+        let refObj: (typeof activeReferences)[number];
+        if ("kind" in item && "number" in item) {
+            const vItem = item as VideoInputItem;
+            const token = `@[${vItem.stableId}]`;
+            const label = vItem.h3Tag ? `${vItem.h3Tag} · ${vItem.name}` : `文本 ${vItem.number} · ${vItem.name}`;
+            refObj = {
+                id: vItem.stableId,
+                nodeId: vItem.nodeId || "",
+                kind: vItem.kind as CanvasResourceReference["kind"],
+                label,
+                title: vItem.name,
+                previewUrl: vItem.previewUrl,
+                text: vItem.text,
+                token,
+                h3Tag: vItem.h3Tag,
+                active: true,
+            };
+        } else {
+            const cRef = item as CanvasResourceReference;
+            refObj = {
+                id: cRef.id,
+                nodeId: cRef.nodeId,
+                kind: cRef.kind,
+                label: cRef.label,
+                title: cRef.title,
+                previewUrl: cRef.previewUrl,
+                text: cRef.text,
+                token: cRef.token || cRef.label,
+                h3Tag: undefined,
+                active: cRef.active,
+            };
+        }
+
+        editor.focus();
+        const chip = createReferenceChip(refObj, theme, setImagePreview);
         const space = document.createTextNode(" ");
+
+        let range = lastRangeRef.current;
         const selection = window.getSelection();
-        const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-        if (range) {
+        if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
+            range = selection.getRangeAt(0);
+        }
+
+        if (range && editor.contains(range.startContainer)) {
+            range.deleteContents();
             range.insertNode(space);
             range.insertNode(chip);
             range.setStartAfter(space);
             range.collapse(true);
             selection?.removeAllRanges();
             selection?.addRange(range);
+            lastRangeRef.current = range.cloneRange();
         } else {
             editor.append(chip, space);
             placeCaretAtEnd(editor);
+            saveSelection();
         }
         closeMention();
         emit(serializeEditor(editor));
     };
+
+    useImperativeHandle(ref, () => ({
+        insertReference,
+        focus: () => {
+            editorRef.current?.focus();
+        },
+    }));
 
     const showPlaceholder = !value.trim();
 
@@ -151,6 +298,8 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
                     composingRef.current = false;
                     syncFromEditor();
                 }}
+                onClick={saveSelection}
+                onKeyUp={saveSelection}
                 onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                     event.stopPropagation();
                     if (isImeComposing(event)) return;
@@ -188,7 +337,10 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
                     }
                     requestAnimationFrame(syncMention);
                 }}
-                onBlur={() => window.setTimeout(closeMention, 120)}
+                onBlur={() => {
+                    saveSelection();
+                    window.setTimeout(closeMention, 120);
+                }}
             />
             {mention && candidates.length ? (
                 <MentionMenu rect={mention.rect} references={candidates} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} />
@@ -196,9 +348,21 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
             {imagePreview ? <Image src={imagePreview} alt={i18n.t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
-}
+});
 
-function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect: DOMRect | null; references: CanvasResourceReference[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (reference: CanvasResourceReference) => void }) {
+function MentionMenu({
+    rect,
+    references,
+    activeIndex,
+    theme,
+    onSelect,
+}: {
+    rect: DOMRect | null;
+    references: Array<{ id: string; label: string; title: string; kind: string; previewUrl?: string; text?: string }>;
+    activeIndex: number;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    onSelect: (reference: any) => void;
+}) {
     const selectedRef = useRef(false);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
@@ -206,7 +370,7 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
         activeItemRef.current?.scrollIntoView({ block: "nearest" });
     }, [activeIndex, references]);
 
-    const selectReference = (reference: CanvasResourceReference) => {
+    const selectReference = (reference: any) => {
         if (selectedRef.current) return;
         selectedRef.current = true;
         onSelect(reference);
@@ -261,7 +425,7 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
     );
 }
 
-function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
+function ReferencePreview({ reference }: { reference: { kind: string; previewUrl?: string } }) {
     if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
     if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
     const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
@@ -272,36 +436,76 @@ function ReferencePreview({ reference }: { reference: CanvasResourceReference })
     );
 }
 
-function createReferenceChip(reference: CanvasResourceReference, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(
+    reference: { kind: string; title: string; label: string; token: string; previewUrl?: string; text?: string; h3Tag?: string },
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes],
+    onImagePreview: (url: string) => void,
+) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.refLabel = reference.label;
-    if (reference.kind === "image" && reference.previewUrl) {
+    wrapper.dataset.refToken = reference.token;
+    wrapper.className = "mx-px inline-flex h-6 max-w-48 items-center gap-1 justify-center overflow-hidden rounded-md border px-1.5 text-xs leading-none align-middle";
+    Object.assign(wrapper.style, { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text } as CSSProperties);
+
+    if ((reference.kind === "image" || reference.kind === "subject") && reference.previewUrl) {
         const image = document.createElement("img");
         image.src = reference.previewUrl;
         image.alt = reference.title;
-        image.className = "size-6 rounded object-cover";
-        wrapper.className = "mx-px inline-flex size-6 items-center justify-center overflow-hidden rounded align-middle";
+        image.className = "size-4 rounded object-cover shrink-0";
         wrapper.appendChild(image);
         wrapper.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
             onImagePreview(reference.previewUrl || "");
         });
+    } else if (reference.kind === "video" && reference.previewUrl) {
+        const video = document.createElement("video");
+        video.src = reference.previewUrl;
+        video.muted = true;
+        video.className = "size-4 rounded object-cover shrink-0";
+        wrapper.appendChild(video);
     } else {
-        wrapper.className = "mx-px inline-flex h-6 max-w-40 items-center justify-center overflow-hidden rounded-md border px-1 text-xs leading-none align-middle";
-        Object.assign(wrapper.style, { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text } as CSSProperties);
-        wrapper.title = reference.text || reference.title;
-        const text = document.createElement("span");
-        text.className = "block truncate";
-        text.textContent = reference.kind === "text" ? reference.text || reference.title : reference.label;
-        wrapper.appendChild(text);
+        const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
+        // Icon container
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "shrink-0 opacity-70 text-[10px]";
+        iconSpan.textContent = reference.kind === "audio" ? "🎵" : reference.kind === "video" ? "🎬" : reference.kind === "subject" ? "👤" : "📄";
+        wrapper.appendChild(iconSpan);
     }
+
+    const text = document.createElement("span");
+    text.className = "block truncate font-medium";
+    text.textContent = reference.h3Tag ? `${reference.h3Tag} ${reference.title}` : reference.label;
+    wrapper.appendChild(text);
+    wrapper.title = reference.text || reference.title;
+
+    return wrapper;
+}
+
+function createErrorChip(token: string, theme: (typeof canvasThemes)[keyof typeof canvasThemes]) {
+    const wrapper = document.createElement("span");
+    wrapper.contentEditable = "false";
+    wrapper.dataset.refToken = token;
+    wrapper.dataset.refError = "true";
+    wrapper.className = "mx-px inline-flex h-6 max-w-48 items-center gap-1 justify-center overflow-hidden rounded-md border border-red-500/60 bg-red-500/10 px-1.5 text-xs leading-none align-middle text-red-500";
+    wrapper.title = `引用的素材已断开或不存在: ${token}`;
+
+    const warnIcon = document.createElement("span");
+    warnIcon.className = "shrink-0 text-[11px]";
+    warnIcon.textContent = "⚠";
+    wrapper.appendChild(warnIcon);
+
+    const text = document.createElement("span");
+    text.className = "block truncate font-mono text-[11px]";
+    text.textContent = token;
+    wrapper.appendChild(text);
+
     return wrapper;
 }
 
 function serializeEditor(editor: HTMLElement) {
-    return serializeNodes(editor.childNodes).replace(/﻿/g, "");
+    return serializeNodes(editor.childNodes).replace(/\uFEFF/g, "");
 }
 
 function serializeNodes(nodes: NodeListOf<ChildNode>) {
@@ -309,8 +513,8 @@ function serializeNodes(nodes: NodeListOf<ChildNode>) {
     nodes.forEach((node) => {
         if (node.nodeType === Node.TEXT_NODE) result += node.textContent || "";
         if (!(node instanceof HTMLElement)) return;
-        const label = node.dataset.refLabel;
-        if (label) result += label;
+        const token = node.dataset.refToken;
+        if (token) result += token;
         else if (node.tagName === "BR") result += "\n";
         else result += serializeNodes(node.childNodes);
     });
@@ -328,7 +532,6 @@ function removeActiveMention() {
     range.deleteContents();
 }
 
-// Chips are atomic contentEditable="false" blocks and are removed as a unit with adjacent Backspace/Delete presses.
 function deleteAdjacentReference(key: string) {
     const selection = window.getSelection();
     if (!selection?.rangeCount || !selection.isCollapsed) return false;
@@ -360,7 +563,7 @@ function adjacentReferenceNode(range: Range, key: string) {
 function findReferenceSibling(node: Node, previous: boolean, includeSelf = false): HTMLElement | null {
     let current: Node | null = includeSelf ? node : previous ? node.previousSibling : node.nextSibling;
     while (current && current.nodeType === Node.TEXT_NODE && !(current.textContent || "").trim()) current = previous ? current.previousSibling : current.nextSibling;
-    return current instanceof HTMLElement && current.dataset.refLabel ? current : null;
+    return current instanceof HTMLElement && current.dataset.refToken ? current : null;
 }
 
 function textBeforeCaret() {
@@ -380,7 +583,6 @@ function caretRect(): DOMRect | null {
     range.collapse(true);
     const rect = range.getBoundingClientRect();
     if (rect.width || rect.height || rect.left || rect.top) return rect;
-    // Empty lines and editors produce a zero-sized range, so fall back to the editor bounds.
     const editor = closestEditor(range.startContainer);
     return editor ? editor.getBoundingClientRect() : null;
 }
@@ -399,25 +601,46 @@ function placeCaretAtEnd(element: HTMLElement) {
     selection?.addRange(range);
 }
 
-// Split value into text fragments and matching active labels, which are already sorted by descending length.
-function parseTokens(value: string, labels: string[]): Token[] {
-    if (!labels.length) return value ? [{ type: "text", value }] : [];
-    const escaped = labels.map(escapeRegExp).join("|");
-    const pattern = new RegExp(`(${escaped})`, "g");
+// Split value into text fragments, active references and potential H3 / node tokens
+function parseTokens(
+    value: string,
+    references: Array<{ id: string; label: string; token: string; h3Tag?: string }>,
+): Token[] {
     const tokens: Token[] = [];
+    const pattern = /@\[(node|subject|binding):([^\]]+)\]|<(Subject|Picture|Video|Audio)\s+(\d+)>|\b(subject|picture|image|audio|video)[ _](\d+)\b/gi;
     let lastIndex = 0;
-    for (const match of value.matchAll(pattern)) {
-        if (match.index === undefined) continue;
-        if (match.index > lastIndex) tokens.push({ type: "text", value: value.slice(lastIndex, match.index) });
-        tokens.push({ type: "reference", label: match[0] });
-        lastIndex = match.index + match[0].length;
-    }
-    if (lastIndex < value.length) tokens.push({ type: "text", value: value.slice(lastIndex) });
-    return tokens;
-}
 
-function escapeRegExp(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const match of value.matchAll(pattern)) {
+        const start = match.index ?? 0;
+        if (start > lastIndex) {
+            tokens.push({ type: "text", value: value.slice(lastIndex, start) });
+        }
+        const fullToken = match[0];
+        const isStableToken = match[1] !== undefined;
+        const existingLabel = references.find((reference) => !reference.h3Tag && reference.label === fullToken);
+        if (!isStableToken && existingLabel) {
+            tokens.push({ type: "reference", label: existingLabel.label, serializedValue: existingLabel.token });
+            lastIndex = start + fullToken.length;
+            continue;
+        }
+        if (isStableToken) {
+            const ref = references.find((r) => r.token === fullToken);
+            if (ref) {
+                tokens.push({ type: "reference", label: ref.label, serializedValue: fullToken, isError: false });
+            } else {
+                tokens.push({ type: "reference", label: fullToken, serializedValue: fullToken, isError: true });
+            }
+        } else {
+            // Bare numbered mention (<Picture N>, picture_N, etc.) -> 待核对 (error chip)
+            tokens.push({ type: "reference", label: fullToken, serializedValue: fullToken, isError: true });
+        }
+        lastIndex = start + fullToken.length;
+    }
+
+    if (lastIndex < value.length) {
+        tokens.push({ type: "text", value: value.slice(lastIndex) });
+    }
+    return tokens;
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -3,7 +3,8 @@ import i18n from "@/i18n";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageToDataUrl } from "@/services/image-storage";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { readReferenceOrder, sortByReferenceOrder } from "@/lib/canvas/canvas-reference-plan";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasSubject, type VideoInputItem } from "@/types/canvas";
 
 export type CanvasResourceKind = "image" | "video" | "audio" | "text";
 
@@ -15,11 +16,23 @@ export type CanvasResourceReference = {
     title: string;
     previewUrl?: string;
     text?: string;
+    token?: string;
+    subjectId?: string;
+    bindingId?: string;
     active: boolean;
 };
 
-export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[], subjects: CanvasSubject[] = []) {
+    const resources = labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+    if (node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Config) return resources;
+    const nodeById = new Map(nodes.map((item) => [item.id, item]));
+    const subjectReferences: CanvasResourceReference[] = subjects.map((subject) => ({ id: `subject:${subject.subjectId}`, nodeId: node.id, kind: "text", label: `Subject: ${subject.name}`, title: subject.name, text: subject.description, token: `@[subject:${subject.subjectId}]`, subjectId: subject.subjectId, active: true }));
+    const bindingReferences: CanvasResourceReference[] = (node.metadata?.videoBindings || []).flatMap((binding) => {
+        const mediaNode = nodeById.get(binding.nodeId);
+        if (!mediaNode) return [];
+        return [{ id: `binding:${binding.bindingId}`, nodeId: binding.nodeId, kind: binding.mediaType, label: `${mediaNode.title} · ${i18n.t(`canvas.videoInput.usages.${binding.usage}`)}`, title: mediaNode.title, previewUrl: mediaNode.metadata?.content, text: binding.subjectId ? subjects.find((subject) => subject.subjectId === binding.subjectId)?.name : undefined, token: `@[binding:${binding.bindingId}]`, bindingId: binding.bindingId, active: true }];
+    });
+    return [...resources, ...subjectReferences, ...bindingReferences];
 }
 
 export function buildCanvasResourceReferences(nodes: CanvasNodeData[]) {
@@ -144,4 +157,142 @@ function resourceKind(node: CanvasNodeData): CanvasResourceKind | null {
     if (node.type === CanvasNodeType.Text && (node.metadata?.content || node.metadata?.prompt)) return "text";
     // Plugin nodes declare their input eligibility through definition.resource.
     return getNodeDefinition(node.type)?.resource?.(node)?.kind || null;
+}
+
+export function getEffectiveVideoInputNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): CanvasNodeData[] {
+    const rawInputs = getGenerationResourceNodes(nodeId, nodes, connections);
+    const result: CanvasNodeData[] = [];
+    const seen = new Set<string>();
+    for (const input of rawInputs) {
+        if (input.type === CanvasNodeType.Group) {
+            for (const member of getGroupResourceNodes(input.id, nodes)) {
+                if (isResourceNode(member) && !seen.has(member.id)) {
+                    seen.add(member.id);
+                    result.push(member);
+                }
+            }
+        } else if (isResourceNode(input) && !seen.has(input.id)) {
+            seen.add(input.id);
+            result.push(input);
+        }
+    }
+    return result;
+}
+
+/** AutoDL 首个动作迁移工作流声明了 ref_video 输入；其余已知 H3 工作流没有视频字段。 */
+function workflowDeclaresVideoInput(model: string) {
+    return model.trim().toLowerCase() === "wan2.2animate-v4-motion_retargeting";
+}
+
+export function buildVideoInputList(
+    sourceNode: CanvasNodeData,
+    nodes: CanvasNodeData[],
+    connections: CanvasConnection[],
+    subjects: CanvasSubject[] = [],
+    prompt = "",
+    modelOverride?: string,
+): VideoInputItem[] {
+    const effectiveNodes = getEffectiveVideoInputNodes(sourceNode.id, nodes, connections);
+    const items: VideoInputItem[] = [];
+    const counts = { image: 0, video: 0, audio: 0, text: 0 };
+    const effectiveModel = (modelOverride || sourceNode.metadata?.model || "").trim();
+    const isH3 = /h3/i.test(effectiveModel);
+
+    for (const node of effectiveNodes) {
+        const kind = resourceKind(node);
+        if (!kind) continue;
+        const number = ++counts[kind];
+        let h3Tag: string | undefined;
+        let previewUrl: string | undefined;
+        let text: string | undefined;
+        let disabled: boolean | undefined;
+        let disabledReason: string | undefined;
+
+        if (kind === "image") {
+            h3Tag = `<Picture ${number}>`;
+            const resource = getNodeDefinition(node.type)?.resource?.(node);
+            previewUrl = node.metadata?.content || resource?.url;
+        } else if (kind === "video") {
+            h3Tag = `<Video ${number}>`;
+            const resource = getNodeDefinition(node.type)?.resource?.(node);
+            previewUrl = node.metadata?.content || resource?.url;
+            // H3 工作流默认没有视频输入字段；只有确实声明了视频输入的 AutoDL 工作流例外。
+            if (isH3 && !workflowDeclaresVideoInput(effectiveModel)) {
+                disabled = true;
+                disabledReason = i18n.t("canvas.videoInput.issues.unsupportedVideoMedia") || "当前工作流不支持视频输入，无可用字段";
+            }
+        } else if (kind === "audio") {
+            h3Tag = `<Audio ${number}>`;
+        } else if (kind === "text") {
+            text = resourceText(node);
+        }
+
+        items.push({
+            kind,
+            stableId: `node:${node.id}`,
+            nodeId: node.id,
+            name: node.title || (kind === "text" ? `文本 ${number}` : `${kind} ${number}`),
+            number,
+            h3Tag,
+            referenced: false,
+            previewUrl,
+            text,
+            disabled,
+            disabledReason,
+        });
+    }
+
+    const effectiveNodeIds = new Set(effectiveNodes.map((n) => n.id));
+    const activeBindings = (sourceNode.metadata?.videoBindings || []).filter(
+        (binding) => binding.subjectId && effectiveNodeIds.has(binding.nodeId)
+    );
+    const seenSubjectIds = new Set<string>();
+    let subjectCount = 0;
+
+    for (const binding of activeBindings) {
+        if (!binding.subjectId || seenSubjectIds.has(binding.subjectId)) continue;
+        const subject = subjects.find((s) => s.subjectId === binding.subjectId);
+        if (!subject) continue;
+        seenSubjectIds.add(binding.subjectId);
+        subjectCount++;
+        const h3Tag = `<Subject ${subjectCount}>`;
+        const boundNodes = effectiveNodes.filter((n) => activeBindings.some((b) => b.subjectId === subject.subjectId && b.nodeId === n.id));
+        const boundNode = boundNodes[0];
+        const boundPreview = boundNode?.metadata?.content || getNodeDefinition(boundNode?.type || "")?.resource?.(boundNode!)?.url;
+
+        items.push({
+            kind: "subject",
+            stableId: `subject:${subject.subjectId}`,
+            nodeId: binding.nodeId,
+            name: subject.name,
+            number: subjectCount,
+            h3Tag,
+            referenced: false,
+            previewUrl: boundPreview,
+            text: subject.description,
+        });
+    }
+
+    // 提交前按 referenceNodeOrder 固定顺序，再按实际顺序重新编号并生成标签；
+    // 正文标记的解析与提交都基于这同一份编号，避免排序后标签与请求不一致。
+    const ordered = sortByReferenceOrder(items, readReferenceOrder(sourceNode.metadata), (item) => item.stableId);
+    const nextNumbers = { image: 0, video: 0, audio: 0, text: 0, subject: 0 };
+    for (const item of ordered) {
+        const number = ++nextNumbers[item.kind];
+        item.number = number;
+        item.h3Tag =
+            item.kind === "image"
+                ? `<Picture ${number}>`
+                : item.kind === "video"
+                  ? `<Video ${number}>`
+                  : item.kind === "audio"
+                    ? `<Audio ${number}>`
+                    : item.kind === "subject"
+                      ? `<Subject ${number}>`
+                      : undefined;
+        item.name = item.kind === "text" ? `文本 ${number}` : item.name;
+        item.referenced = prompt.includes(`@[${item.stableId}]`) || Boolean(item.h3Tag && prompt.includes(item.h3Tag));
+    }
+
+    return ordered;
 }

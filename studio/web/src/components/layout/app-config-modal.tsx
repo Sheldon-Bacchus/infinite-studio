@@ -392,6 +392,7 @@ function normalizeImageCount(value: string) {
 
 function apiFormatLabel(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return "Gemini";
+    if (apiFormat === "autodl") return "AutoDL";
     return "OpenAI";
 }
 

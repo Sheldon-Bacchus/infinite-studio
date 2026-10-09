@@ -235,6 +235,27 @@ export type CanvasNodeContext = {
     closePanel: () => void;
     // 插件私有持久化,按插件 id 命名空间隔离
     storage: PluginStorage;
+    // 作品仓库受限 adapter 能力 (宿主统一注入，插件不直连内部 HTTP API)
+    works?: WorksCapability;
+};
+
+export type WorksWorkSummary = {
+    id: string;
+    title: string;
+    revision: number;
+    currentCommitId: string;
+};
+
+export type WorksCapability = {
+    getCurrentWork: () => WorksWorkSummary | null;
+    getAssets: () => Promise<unknown[]>;
+    saveAssetsAndWait: (assets: unknown[]) => Promise<unknown[]>;
+    readCanonicalAssets: () => Promise<unknown[]>;
+    archiveAssets: (assetIds: string[]) => Promise<void>;
+    archiveCanvasNodes?: (nodes: unknown[], canvasId: string, snapshot?: unknown) => Promise<{ archivedCount: number; pendingCount: number }>;
+    onWorkChanged: (handler: (work: WorksWorkSummary | null) => void) => () => void;
+    uploadMedia?: (file: Blob, filename: string, mimeType?: string) => Promise<{ fileId: string; sha256: string }>;
+    getMediaUrl?: (fileId: string) => string;
 };
 
 // ---------------------------------------------------------------------------
@@ -307,6 +328,7 @@ export type CanvasPluginApp = {
     on: (event: string, handler: (payload: unknown) => void) => () => void;
     // 注入插件样式,返回移除函数;传 key 时同 key 覆盖旧样式
     injectCSS: (css: string, key?: string) => () => void;
+    works?: WorksCapability;
 };
 
 // 宿主注入的运行时(工厂形式插件的入参),内含宿主 React 实例避免双 React

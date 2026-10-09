@@ -1,11 +1,11 @@
 {
-  "name": "infinite-canvas-local",
+  "name": "infinite-studio-local",
   "interface": {
-    "displayName": "Infinite Canvas"
+    "displayName": "sudio · 无限片场"
   },
   "plugins": [
     {
-      "name": "infinite-canvas",
+      "name": "sudio",
       "source": {
         "source": "local",
         "path": "./plugins/infinite-canvas"

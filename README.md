@@ -121,6 +121,10 @@
 
 ## 快速开始
 
+### Windows 本地服务管理
+
+运行 `powershell.exe -NoProfile -File E:/all-agent-workspace/infinite-studio/scripts/manage-studio-services.ps1` 打开服务菜单，可分别管理本仓库的网页、工作区服务和片场 Agent；退出菜单不会停止后台服务。脚本默认使用本次验收隔离目录，也可通过 `-AcceptanceRoot` 显式指定已有隔离根目录，不会初始化或迁移数据。
+
 AI API Key、Base URL、画布、素材和生成记录默认保存在浏览器本地。
 
 ### 本地开发

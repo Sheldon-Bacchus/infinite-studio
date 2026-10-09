@@ -5,6 +5,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 import { getGenerationResourceNodes, getGroupResourceNodes } from "@/lib/canvas/canvas-resource-references";
+import { readReferenceOrder, sortByReferenceOrder } from "@/lib/canvas/canvas-reference-plan";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 
 export type NodeGenerationContext = {
@@ -40,11 +41,12 @@ export type NodeGenerationInput = NodeGenerationResourceInput | NodeGenerationGr
 export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
+    const order = readReferenceOrder(sourceNode?.metadata);
     if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
-        return buildComposerGenerationContext(inputs, prompt);
+        return buildComposerGenerationContext(inputs, prompt, order);
     }
 
-    const resourceInputs = flattenGenerationInputs(inputs);
+    const resourceInputs = sortByReferenceOrder(flattenGenerationInputs(inputs), order, (input) => input.nodeId);
     let textIndex = 0;
     const upstreamText = resourceInputs.flatMap((input) => (input.text ? [textBlock(generationLabel("text", textIndex++), input.text)] : [])).join("\n\n");
     const referenceImages = resourceInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
@@ -63,7 +65,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     };
 }
 
-function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
+function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string, order: string[] = []): NodeGenerationContext {
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationResourceInput[] = [];
     const labelByNodeId = new Map<string, string>();
@@ -96,9 +98,10 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 
     nextPrompt += prompt.slice(lastIndex);
     if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
-    const referenceImages = selectedInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
-    const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
-    const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
+    // 与视频路径保持一致：实际提交的素材顺序由 referenceNodeOrder 决定。
+    const referenceImages = sortByReferenceOrder(selectedInputs, order, (input) => input.nodeId).map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
+    const referenceVideos = sortByReferenceOrder(selectedInputs, order, (input) => input.nodeId).map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
+    const referenceAudios = sortByReferenceOrder(selectedInputs, order, (input) => input.nodeId).map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
 
     if (!hasToken) {
         return {

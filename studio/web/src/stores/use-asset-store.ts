@@ -10,11 +10,12 @@ import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
 import { commitLocalWorkspaceAsset, deleteLocalWorkspaceAsset, getLocalWorkspaceOperation, isAsset, isLocalWorkspaceMode, listLocalWorkspaceAssets } from "@/services/api/local-workspace";
 import { useLocalWorkspaceStore } from "@/stores/use-local-workspace-store";
 
-export type AssetKind = "text" | "image" | "video";
+export type AssetKind = "text" | "image" | "video" | "audio";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
 export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string } };
 export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string } };
-export type Asset = TextAsset | ImageAsset | VideoAsset;
+export type AudioAsset = AssetBase<"audio"> & { data: { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string } };
+export type Asset = TextAsset | ImageAsset | VideoAsset | AudioAsset;
 
 type AssetBase<T extends AssetKind> = {
     id: string;
@@ -93,7 +94,7 @@ const assetStorage: PersistStorage<AssetStore> = {
                     assetRevisions.set(envelope.id, envelope.revision);
                     useLocalWorkspaceStore.getState().setSaveState(`asset:${envelope.id}`, { phase: "clean", revision: envelope.revision });
                     let asset = envelope.data;
-                    if (asset.kind === "video" && (asset.data.storageKey || asset.data.fileId)) return { ...asset, data: { ...asset.data, url: await resolveMediaUrl(asset.data.storageKey || `file:${asset.data.fileId}`, asset.data.url) } };
+                    if ((asset.kind === "video" || asset.kind === "audio") && (asset.data.storageKey || asset.data.fileId)) return { ...asset, data: { ...asset.data, url: await resolveMediaUrl(asset.data.storageKey || `file:${asset.data.fileId}`, asset.data.url) } };
                     if (asset.kind !== "image") return asset;
                     if (asset.coverFileId) asset = { ...asset, coverUrl: await resolveImageUrl(`file:${asset.coverFileId}`, asset.coverUrl, asset.coverFileId) };
                     if (asset.data.storageKey || asset.data.fileId) {

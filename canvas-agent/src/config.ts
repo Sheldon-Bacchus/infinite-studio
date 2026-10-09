@@ -4,14 +4,15 @@ import os from "node:os";
 import path from "node:path";
 
 export const DEFAULT_PORT = 17371;
-export const CONFIG_DIR = path.join(os.homedir(), ".infinite-canvas");
+export const CONFIG_DIR = process.env.CANVAS_AGENT_CONFIG_DIR ? path.resolve(process.env.CANVAS_AGENT_CONFIG_DIR) : path.join(os.homedir(), ".infinite-studio");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "canvas-agent.json");
 export const VERSION = readPackageVersion();
 export const AGENT_PROMPT = fs.readFileSync(new URL("../agent-instructions.md", import.meta.url), "utf8");
+export const INTERNAL_MCP_TOKEN = crypto.randomBytes(24).toString("hex");
 const initializedWorkspaces = new Set<string>();
 
 export type SiteWorkspaceConfig = { workspacePath: string; activeThreadId?: string; pinnedThreadIds?: string[] };
-export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; workspace?: SiteWorkspaceConfig };
+export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; workspace?: SiteWorkspaceConfig; localAssetDirectories?: string[] };
 
 /** 读取本地 Canvas Agent 配置，不存在时生成默认配置。 */
 export function loadConfig(create = false): CanvasAgentConfig {
@@ -69,7 +70,7 @@ function initializeWorkspace(workspacePath: string) {
     fs.mkdirSync(workspacePath, { recursive: true });
     const instructionsFile = path.join(workspacePath, "AGENTS.md");
     const current = fs.existsSync(instructionsFile) ? fs.readFileSync(instructionsFile, "utf8") : "";
-    if (!current || current.startsWith("# Infinite Canvas Agent")) fs.writeFileSync(instructionsFile, AGENT_PROMPT);
+    if (!current || current.startsWith("# Infinite Studio Agent")) fs.writeFileSync(instructionsFile, AGENT_PROMPT);
     initializedWorkspaces.add(workspacePath);
 }
 

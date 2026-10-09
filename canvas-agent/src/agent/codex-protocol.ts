@@ -92,6 +92,10 @@ type CodexRequestSpec = {
         params: { threadId: string; includeTurns: boolean };
         result: { thread: CodexThread };
     };
+    "thread/turns/list": {
+        params: { threadId: string; cursor?: string | null; sortDirection: "asc"; itemsView: "full" };
+        result: { data: CodexTurn[]; nextCursor: string | null };
+    };
     "thread/archive": {
         params: { threadId: string };
         result: Record<string, never>;

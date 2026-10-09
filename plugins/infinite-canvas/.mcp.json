@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "infinite-canvas": {
-      "command": "npx",
-      "args": ["-y", "@basketikun/canvas-agent@latest", "mcp"],
+    "sudio": {
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-File", "E:/all-agent-workspace/infinite-studio/canvas-agent/start-local.ps1", "-Mcp"],
       "startup_timeout_sec": 20,
       "tool_timeout_sec": 90
     }

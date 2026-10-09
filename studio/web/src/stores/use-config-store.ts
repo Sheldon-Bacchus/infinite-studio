@@ -4,8 +4,10 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import type { CanvasMediaType, CanvasMediaUsage, CanvasVideoInputCapabilities } from "@/types/canvas";
 
-export type ApiCallFormat = "openai" | "gemini";
+export type ApiCallFormat = "openai" | "gemini" | "autodl";
+export const AUTODL_DEFAULT_BASE_URL = "https://autodl.art";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -13,6 +15,7 @@ export type ChannelModel = {
     name: string;
     capability: ModelCapability;
     script?: string;
+    videoInputCapabilities?: CanvasVideoInputCapabilities;
 };
 
 export type ModelChannel = {
@@ -163,7 +166,7 @@ export function guessCapability(name: string): ModelCapability {
     return "text";
 }
 
-function findChannelModel(config: AiConfig, value: string): { channel: ModelChannel; model: ChannelModel } | null {
+export function findChannelModel(config: AiConfig, value: string): { channel: ModelChannel; model: ChannelModel } | null {
     const decoded = decodeChannelModel(value);
     const name = decoded?.model || value;
     const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((model) => model.name === name));
@@ -295,9 +298,24 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const videoInputCapabilities = typeof item === "string" ? undefined : normalizeVideoInputCapabilities(item.videoInputCapabilities);
+        result.push({ name, capability, script, videoInputCapabilities });
     }
     return result;
+}
+
+function normalizeVideoInputCapabilities(value: CanvasVideoInputCapabilities | undefined): CanvasVideoInputCapabilities | undefined {
+    if (!value || !["openai-video-v1", "gemini-video-v1", "script-video-v1"].includes(value.adapterId)) return undefined;
+    const media: CanvasVideoInputCapabilities["media"] = {};
+    const mediaTypes: CanvasMediaType[] = ["image", "video", "audio"];
+    const usages: CanvasMediaUsage[] = ["appearance", "detail", "scene", "prop", "storyboard", "first_frame", "last_frame", "voice_style", "dialogue", "music", "ambience", "sound_effect", "original_audio", "action", "camera", "pacing", "edit_source", "continuation_source", "keyframe_source"];
+    mediaTypes.forEach((type) => {
+        const capability = value.media?.[type];
+        const allowedUsages = capability?.usages?.filter((usage) => usages.includes(usage)) || [];
+        const maxCount = Number.isInteger(capability?.maxCount) && (capability?.maxCount || 0) > 0 ? capability!.maxCount : 0;
+        if (allowedUsages.length) media[type] = { usages: allowedUsages, maxCount };
+    });
+    return { adapterId: value.adapterId, media };
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
@@ -462,11 +480,14 @@ function normalizeChannels(config: AiConfig) {
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
+    if (apiFormat === "autodl") return AUTODL_DEFAULT_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" ? apiFormat : "openai";
+    if (apiFormat === "gemini") return "gemini";
+    if (apiFormat === "autodl") return "autodl";
+    return "openai";
 }
 
 function uniqueModelOptions(models: string[]) {

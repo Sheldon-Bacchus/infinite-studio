@@ -1,0 +1,201 @@
+$ tsc --noEmit
+../../plugins/canvas/infinite-xia/src/migration.ts(3,36): error TS2307: Cannot find module '@infinite-canvas/plugin-sdk' or its corresponding type declarations.
+../../plugins/canvas/infinite-xia/src/migration.ts(85,62): error TS2345: Argument of type 'ArrayBuffer | Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+    Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+      Types of property 'buffer' are incompatible.
+        Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+          Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+../../plugins/canvas/infinite-xia/src/migration.ts(400,64): error TS2339: Property 'content' does not exist on type '{ content: string; } | { dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }'.
+  Property 'content' does not exist on type '{ dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+../../plugins/canvas/infinite-xia/src/migration.ts(400,98): error TS2339: Property 'content' does not exist on type '{ content: string; } | { dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }'.
+  Property 'content' does not exist on type '{ dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+../../plugins/canvas/infinite-xia/src/storage.ts(3,36): error TS2307: Cannot find module '@infinite-canvas/plugin-sdk' or its corresponding type declarations.
+../../plugins/canvas/infinite-xia/src/storage.ts(8,11): error TS7006: Parameter 'key' implicitly has an 'any' type.
+../../plugins/canvas/infinite-xia/src/storage.ts(9,17): error TS7006: Parameter 'key' implicitly has an 'any' type.
+../../plugins/canvas/infinite-xia/src/storage.ts(9,22): error TS7006: Parameter 'value' implicitly has an 'any' type.
+../../plugins/canvas/infinite-xia/src/storage.ts(10,20): error TS7006: Parameter 'key' implicitly has an 'any' type.
+../../plugins/canvas/infinite-xia/src/workspace.ts(2,36): error TS2307: Cannot find module '@infinite-canvas/plugin-sdk' or its corresponding type declarations.
+src/components/canvas/canvas-node-input-provenance.tsx(81,36): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(81,66): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(96,57): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(107,73): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(117,36): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(117,66): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-input-provenance.tsx(136,73): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/canvas/canvas-node-prompt-panel.tsx(85,92): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/components/layout/model-script-editor.tsx(58,17): error TS2353: Object literal may only specify known properties, and 'content' does not exist in type '((info: { props: ModalProps; }) => DeepStylesType<{ root?: CSSProperties | undefined; header?: CSSProperties | undefined; body?: CSSProperties | undefined; ... 5 more ...; close?: CSSProperties | undefined; } | undefined>) | DeepStylesType<...>'.
+src/lib/canvas/canvas-generation-helpers.ts(216,13): error TS1117: An object literal cannot have multiple properties with the same name.
+src/lib/canvas/canvas-reference-plan.ts(212,50): error TS2339: Property 'mediaRef' does not exist on type 'CanvasVideoBinding'.
+src/lib/canvas/canvas-reference-plan.ts(212,92): error TS2339: Property 'mediaRef' does not exist on type 'CanvasVideoBinding'.
+src/lib/canvas/canvas-reference-plan.ts(214,42): error TS2339: Property 'mediaRef' does not exist on type 'CanvasVideoBinding'.
+src/lib/canvas/canvas-reference-plan.ts(215,46): error TS2339: Property 'mediaRef' does not exist on type 'CanvasVideoBinding'.
+src/lib/canvas/canvas-reference-plan.ts(224,13): error TS18004: No value exists in scope for the shorthand property 'key'. Either declare one or provide an initializer.
+src/lib/canvas/canvas-reference-plan.ts(241,32): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/lib/canvas/canvas-reference-plan.ts(357,54): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-reference-plan.ts(357,142): error TS2339: Property 'workId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-reference-plan.ts(358,56): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-reference-plan.ts(358,148): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-reference-plan.ts(359,58): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-reference-plan.ts(359,154): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/lib/canvas/canvas-video-inputs.ts(170,62): error TS2345: Argument of type '{ fromNodeId: string; toNodeId: string; }[]' is not assignable to parameter of type 'CanvasConnection[]'.
+  Property 'id' is missing in type '{ fromNodeId: string; toNodeId: string; }' but required in type 'CanvasConnection'.
+src/lib/canvas/canvas-video-inputs.ts(539,72): error TS2345: Argument of type '{ fromNodeId: string; toNodeId: string; }[]' is not assignable to parameter of type 'CanvasConnection[]'.
+  Property 'id' is missing in type '{ fromNodeId: string; toNodeId: string; }' but required in type 'CanvasConnection'.
+src/lib/canvas/canvas-video-inputs.ts(739,62): error TS7053: Element implicitly has an 'any' type because expression of type '"openai-video-v1" | "gemini-video-v1" | "script-video-v1" | "text-only-video-v1"' can't be used to index type 'Record<"openai-video-v1" | "gemini-video-v1" | "script-video-v1", CanvasVideoInputAdapter>'.
+  Property 'text-only-video-v1' does not exist on type 'Record<"openai-video-v1" | "gemini-video-v1" | "script-video-v1", CanvasVideoInputAdapter>'.
+src/lib/local-workspace/commit-queue.ts(185,17): error TS2367: This comparison appears to be unintentional because the types '"saving"' and '"conflict"' have no overlap.
+src/lib/works/canvas-archive.ts(347,32): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(348,62): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(348,91): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(348,114): error TS2339: Property 'xiajiAssetId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(348,147): error TS2339: Property 'xiajiAssetId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(350,70): error TS2339: Property 'revisionId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(350,101): error TS2339: Property 'revisionId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(351,42): error TS2339: Property 'sourceId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(351,71): error TS2339: Property 'sourceId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(351,94): error TS2339: Property 'source' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(351,121): error TS2339: Property 'source' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(465,28): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(466,38): error TS2339: Property 'workId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(466,65): error TS2339: Property 'workId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(476,30): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(476,46): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(548,32): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(549,55): error TS2339: Property 'workId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(560,34): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(560,58): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(560,76): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(560,104): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(564,43): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/lib/works/canvas-archive.ts(564,76): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/lib/works/canvas-archive.ts(572,62): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(572,91): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(572,114): error TS2339: Property 'xiajiAssetId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(572,147): error TS2339: Property 'xiajiAssetId' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(660,41): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(660,53): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(669,34): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(669,58): error TS2339: Property 'url' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(669,76): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(669,104): error TS2339: Property 'dataUrl' does not exist on type 'CanvasNodeMetadata'.
+src/lib/works/canvas-archive.ts(674,43): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/lib/works/canvas-archive.ts(674,76): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/lib/works/migration-source.ts(109,24): error TS2339: Property 'fileId' does not exist on type '{ dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+src/lib/works/migration-source.ts(110,64): error TS2339: Property 'fileId' does not exist on type '{ dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+src/lib/works/migration-source.ts(128,24): error TS2339: Property 'fileId' does not exist on type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; bytes?: number | undefined; mimeType: string; durationMs?: number | undefined; }'.
+  Property 'fileId' does not exist on type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+src/lib/works/migration-source.ts(129,64): error TS2339: Property 'fileId' does not exist on type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; bytes?: number | undefined; mimeType: string; durationMs?: number | undefined; }'.
+  Property 'fileId' does not exist on type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+src/lib/works/migration-source.ts(181,22): error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BlobPart'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/lib/works/works-adapter.ts(28,62): error TS2345: Argument of type 'ArrayBuffer | Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+    Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+      Types of property 'buffer' are incompatible.
+        Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+          Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/lib/works/works-adapter.ts(134,94): error TS2353: Object literal may only specify known properties, and 'fileId' does not exist in type '{ dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+src/lib/works/works-adapter.ts(139,94): error TS2353: Object literal may only specify known properties, and 'fileId' does not exist in type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; bytes?: number | undefined; mimeType: string; durationMs?: number | undefined; }'.
+src/lib/works/works-adapter.ts(276,22): error TS2304: Cannot find name 'extractProjection'.
+src/lib/works/works-adapter.ts(278,37): error TS2304: Cannot find name 'injectWorksCanonical'.
+src/lib/works/works-adapter.ts(328,17): error TS2322: Type 'Record<string, unknown>' is not assignable to type '{ content: string; } | { dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }'.
+  Type 'Record<string, unknown>' is missing the following properties from type '{ url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }': url, width, height, bytes, mimeType
+src/lib/works/works-adapter.ts(365,21): error TS2353: Object literal may only specify known properties, and 'fileId' does not exist in type '{ content: string; } | { dataUrl: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }'.
+src/pages/canvas/project.tsx(340,41): error TS2339: Property 'startWorkId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(341,35): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/pages/canvas/project.tsx(373,49): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/pages/canvas/project.tsx(373,91): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/pages/canvas/project.tsx(374,55): error TS2339: Property 'startWorkId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(374,96): error TS2339: Property 'startWorkId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(396,55): error TS2339: Property 'shotId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(396,91): error TS2339: Property 'shotId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(397,58): error TS2339: Property 'episodeId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(397,97): error TS2339: Property 'episodeId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(398,63): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(398,107): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(413,37): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/pages/canvas/project.tsx(2523,51): error TS2339: Property 'worksCanonical' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2524,60): error TS2339: Property 'selectedPromptRevisionId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2525,34): error TS2339: Property 'selectedPromptRevisionId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2526,41): error TS2339: Property 'promptRevisionId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2526,88): error TS2339: Property 'promptRevisionId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2553,54): error TS2339: Property 'episodeId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2553,94): error TS2339: Property 'episodeId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2554,51): error TS2339: Property 'shotId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2554,88): error TS2339: Property 'shotId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2555,90): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2555,135): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2563,78): error TS2339: Property 'workId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2564,82): error TS2339: Property 'objectId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2565,86): error TS2339: Property 'sourceRevision' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2567,70): error TS2339: Property 'selectedPromptRevisionId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2568,57): error TS2339: Property 'imagePrompt' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2569,57): error TS2339: Property 'videoPrompt' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2570,63): error TS2339: Property 'promptRevisionIds' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2741,37): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(2742,37): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(2814,29): error TS2353: Object literal may only specify known properties, and 'startWorkId' does not exist in type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2835,29): error TS2353: Object literal may only specify known properties, and 'startWorkId' does not exist in type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(2856,91): error TS2561: Object literal may only specify known properties, but 'generationId' does not exist in type 'CanvasNodeMetadata'. Did you mean to write 'generationMode'?
+src/pages/canvas/project.tsx(2879,29): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(2880,29): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(2920,25): error TS2561: Object literal may only specify known properties, but 'generationId' does not exist in type 'CanvasNodeMetadata'. Did you mean to write 'generationMode'?
+src/pages/canvas/project.tsx(2984,33): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(2985,33): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/pages/canvas/project.tsx(3130,55): error TS2551: Property 'generationId' does not exist on type 'CanvasNodeMetadata'. Did you mean 'generationMode'?
+src/pages/canvas/project.tsx(3132,49): error TS2339: Property 'startWorkId' does not exist on type 'CanvasNodeMetadata'.
+src/pages/canvas/project.tsx(3260,29): error TS2353: Object literal may only specify known properties, and 'startWorkId' does not exist in type 'CanvasNodeMetadata'.
+src/pages/video/index.tsx(252,81): error TS2339: Property 'fileId' does not exist on type 'GeneratedVideo'.
+src/pages/works/index.tsx(960,105): error TS2551: Property 'commitsCount' does not exist on type 'WorkPackagePreviewResult'. Did you mean 'commitCount'?
+src/pages/works/index.tsx(961,77): error TS2551: Property 'recordsCount' does not exist on type 'WorkPackagePreviewResult'. Did you mean 'recordCount'?
+src/pages/works/index.tsx(1084,63): error TS2339: Property 'validCommits' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1084,101): error TS2339: Property 'verifiedRecords' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1084,141): error TS2339: Property 'verifiedMedia' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1089,115): error TS2339: Property 'headCommitId' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1091,74): error TS2339: Property 'validCommits' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1092,74): error TS2339: Property 'verifiedRecords' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1093,74): error TS2339: Property 'verifiedMedia' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1094,74): error TS2339: Property 'orphanCommits' does not exist on type 'WorkAuditReport'.
+src/pages/works/index.tsx(1095,74): error TS2551: Property 'orphanRecords' does not exist on type 'WorkAuditReport'. Did you mean 'orphanRecordIds'?
+src/pages/works/index.tsx(1096,74): error TS2339: Property 'orphanMedia' does not exist on type 'WorkAuditReport'.
+src/services/api/works.ts(360,396): error TS18046: 'value.work' is of type 'unknown'.
+src/stores/canvas/use-canvas-store.ts(118,5): error TS2322: Type '(name: string) => Promise<StorageValue<CanvasStore> | { state: { projects: CanvasProject[]; deletedProjects: never[]; }; version: number; } | null>' is not assignable to type '(name: string) => StorageValue<CanvasStore> | Promise<StorageValue<CanvasStore> | null> | null'.
+  Type 'Promise<StorageValue<CanvasStore> | { state: { projects: CanvasProject[]; deletedProjects: never[]; }; version: number; } | null>' is not assignable to type 'StorageValue<CanvasStore> | Promise<StorageValue<CanvasStore> | null> | null'.
+    Type 'Promise<StorageValue<CanvasStore> | { state: { projects: CanvasProject[]; deletedProjects: never[]; }; version: number; } | null>' is not assignable to type 'Promise<StorageValue<CanvasStore> | null>'.
+      Type 'StorageValue<CanvasStore> | { state: { projects: CanvasProject[]; deletedProjects: never[]; }; version: number; } | null' is not assignable to type 'StorageValue<CanvasStore> | null'.
+        Type '{ state: { projects: CanvasProject[]; deletedProjects: never[]; }; version: number; }' is not assignable to type 'StorageValue<CanvasStore>'.
+          Types of property 'state' are incompatible.
+            Type '{ projects: CanvasProject[]; deletedProjects: never[]; }' is missing the following properties from type 'CanvasStore': hydrated, projectReloadVersions, createProject, importProject, and 7 more.
+src/stores/use-asset-store.ts(88,5): error TS2322: Type '(name: string) => Promise<StorageValue<AssetStore> | { state: { assets: (TextAsset | ImageAsset | AudioAsset | { data: { ...; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]; }; version: number; } | null>' is not assignable to type '(name: string) => StorageValue<AssetStore> | Promise<StorageValue<AssetStore> | null> | null'.
+  Type 'Promise<StorageValue<AssetStore> | { state: { assets: (TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; ... 4 more ...; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]; }; version: number; } | null>' is not assignable to type 'StorageValue<AssetStore> | Promise<StorageValue<AssetStore> | null> | null'.
+    Type 'Promise<StorageValue<AssetStore> | { state: { assets: (TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; ... 4 more ...; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]; }; version: number; } | null>' is not assignable to type 'Promise<StorageValue<AssetStore> | null>'.
+      Type 'StorageValue<AssetStore> | { state: { assets: (TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; ... 4 more ...; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]; }; version: number; } | null' is not assignable to type 'StorageValue<AssetStore> | null'.
+        Type '{ state: { assets: (TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<string, unknown>; })[]; }; version: number; }' is not assignable to type 'StorageValue<AssetStore>'.
+          Types of property 'state' are incompatible.
+            Type '{ assets: (TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]; }' is missing the following properties from type 'AssetStore': hydrated, addAsset, updateAsset, removeAsset, and 2 more.
+src/stores/use-asset-store.ts(112,72): error TS2345: Argument of type 'TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; }' is not assignable to parameter of type 'Asset'.
+  Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type 'Asset'.
+    Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type 'VideoAsset'.
+      Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type '{ data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }; }'.
+        Types of property 'data' are incompatible.
+          Type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; fileId?: string | undefined; duration?: number | undefined; bytes: number; mimeType: string; }' is not assignable to type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+            Type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; duration?: number | undefined; bytes: number; mimeType: string; }' is missing the following properties from type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }': width, height
+src/stores/use-asset-store.ts(113,17): error TS2322: Type '(TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; })[]' is not assignable to type 'Asset[]'.
+  Type 'TextAsset | ImageAsset | AudioAsset | { data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { ...; }; ... 10 more ...; metadata?: Record<...> | undefined; }' is not assignable to type 'Asset'.
+    Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type 'Asset'.
+      Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type 'VideoAsset'.
+        Type '{ data: { url: string; storageKey?: string; fileId?: string; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string; fileId?: string; duration?: number; bytes: number; mimeType: string; }; ... 10 more ...; metadata?: Record<string, unknown>; }' is not assignable to type '{ data: { url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }; }'.
+          Types of property 'data' are incompatible.
+            Type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; } | { url: string; storageKey?: string | undefined; fileId?: string | undefined; duration?: number | undefined; bytes: number; mimeType: string; }' is not assignable to type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }'.
+              Type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; duration?: number | undefined; bytes: number; mimeType: string; }' is missing the following properties from type '{ url: string; storageKey?: string | undefined; fileId?: string | undefined; width: number; height: number; bytes: number; mimeType: string; }': width, height
+error: script "typecheck" exited with code 1

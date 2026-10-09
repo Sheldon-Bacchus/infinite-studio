@@ -9,7 +9,8 @@ import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-pr
 import { messageMetadataStore } from "../agent/message-metadata.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
-import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
+import { normalizeAssetDirectories } from "../canvas/local-assets.js";
+import { DEFAULT_PORT, INTERNAL_MCP_TOKEN, VERSION, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
 import { SkillStore, SkillStoreError } from "../skills/store.js";
@@ -22,7 +23,7 @@ export function startHttpServer() {
     saveConfig(config);
 
     const initialWorkspace = ensureSiteWorkspace(config);
-    const session = new CanvasSession(initialWorkspace.activeThreadId || "");
+    const session = new CanvasSession(initialWorkspace.activeThreadId || "", config.localAssetDirectories || []);
     const skillStore = new SkillStore(initialWorkspace.workspacePath);
     /** 将 Agent 事件广播到所属线程或全部网页。 */
     const emit = (type: string, payload: unknown) => {
@@ -120,7 +121,7 @@ export function startHttpServer() {
         if (req.method === "OPTIONS") return void res.json({});
         next();
     });
-    app.get("/health", (_req, res) => res.json(session.health()));
+    app.get("/health", (_req, res) => res.json({ ...session.health(), version: VERSION, entry: process.argv[1] }));
     app.get("/config", (_req, res) => res.json({ ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, url: config.url, hasToken: true }));
     app.use((req, res, next) => {
         if (validToken(req, requestUrl(req, config), config.token)) return next();
@@ -130,8 +131,9 @@ export function startHttpServer() {
         session.openEvents(requestUrl(req, config), res, ensureSiteWorkspace(config).activeThreadId || "");
     });
     app.post("/canvas/state", (req, res) => {
-        session.updateState(req.body, String(req.query.clientId || "") || undefined);
-        res.json({ ok: true });
+        const receipt = session.updateState(req.body, String(req.query.clientId || "") || undefined);
+        if (!receipt) return res.status(400).json({ ok: false, error: "网页未连接或客户端无效" });
+        res.json({ ok: true, ...receipt });
     });
     app.post("/canvas/activate", (req, res) => {
         session.activateClient(String(req.query.clientId || ""));
@@ -154,6 +156,41 @@ export function startHttpServer() {
         res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
         res.type(asset.contentType).send(asset.data);
     }));
+    app.get("/agent/local-assets/settings", (_req, res) => res.json({ ok: true, directories: session.localAssets.listDirectories() }));
+    app.post("/agent/local-assets/settings", route(async (req, res) => {
+        const directories = await normalizeAssetDirectories(req.body?.directories);
+        saveConfig({ ...config, localAssetDirectories: directories });
+        config.localAssetDirectories = directories;
+        session.localAssets.setDirectories(directories);
+        res.json({ ok: true, directories });
+    }));
+    app.get("/agent/local-assets/requests/:requestId", route(async (req, res) => {
+        const ids = await session.localAssetRequestIds(String(req.query.clientId || ""), routeParam(req.params.requestId));
+        for (const id of ids) await session.localAssets.resolve(id);
+        res.json({ ok: true, assetIds: ids });
+    }));
+    app.get("/agent/local-assets/files/:assetId", route(async (req, res) => {
+        const assetId = routeParam(req.params.assetId);
+        // 限定在本次导入请求内的素材才允许传输，避免任意 assetId 被直接拉取。
+        const requestId = String(req.query.requestId || "");
+        const clientId = String(req.query.clientId || "");
+        if (!requestId) return void res.status(400).json({ ok: false, error: "缺少 requestId" });
+        const ids = await session.localAssetRequestIds(clientId, requestId);
+        if (!ids.includes(assetId)) return void res.status(403).json({ ok: false, error: "素材不属于本次导入请求" });
+        const file = await session.localAssets.open(assetId);
+        try {
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("Content-Length", String(file.size));
+            res.setHeader("Content-Type", file.contentType);
+            const stream = file.handle.createReadStream({ autoClose: false });
+            stream.on("close", () => void file.handle.close().catch(() => undefined));
+            stream.on("error", () => void file.handle.close().catch(() => undefined));
+            stream.pipe(res);
+        } catch (error) {
+            await file.handle.close().catch(() => undefined);
+            throw error;
+        }
+    }));
     app.post("/agent/local-file/reveal", route(async (req, res) => {
         const filePath = String(req.body?.path || "");
         if (!path.isAbsolute(filePath)) return res.status(400).json({ ok: false, error: "文件路径必须是绝对路径" });
@@ -169,7 +206,117 @@ export function startHttpServer() {
         res.setHeader("Cache-Control", "no-store");
         res.type(path.extname(filePath)).send(await readFile(filePath));
     }));
-    app.post("/api/tools", route(async (req, res) => res.json({ ok: true, result: await session.callTool(req.body?.name, req.body?.input || {}) })));
+    app.post("/api/connections/create", route(async (req, res) => {
+        const label = typeof req.body?.label === "string" ? req.body.label.trim() : "";
+        const { record, channelToken } = session.mcpConnections.createChannel(label);
+        res.json({
+            ok: true,
+            sessionId: record.sessionId,
+            bindCode: record.bindCode,
+            label: record.label,
+            channelToken,
+        });
+    }));
+    app.post("/api/connections/register", (_req, res) => {
+        res.status(400).json({ ok: false, error: "服务端自动创建身份，不接受客户端任意注册身份，请使用 /api/connections/create" });
+    });
+    app.post("/api/connections/status", (req, res) => {
+        const channelToken = typeof req.body?.channelToken === "string" ? req.body.channelToken.trim() : "";
+        if (channelToken) {
+            const conn = session.mcpConnections.findByToken(channelToken);
+            if (!conn) {
+                return res.status(403).json({ ok: false, error: "channelToken 无效或已失效" });
+            }
+            return res.json({
+                ok: true,
+                channel: {
+                    sessionId: conn.sessionId,
+                    bindCode: conn.bindCode,
+                    label: conn.label,
+                    revoked: conn.revoked,
+                    executionState: conn.executionState,
+                    binding: conn.binding,
+                },
+                clients: session.clientList(),
+            });
+        }
+        res.json({ ok: true, ...session.connectionStatus() });
+    });
+    app.post("/api/connections/bind", route(async (req, res) => {
+        let identifier = "";
+        const channelToken = typeof req.body?.channelToken === "string" ? req.body.channelToken.trim() : "";
+        if (channelToken) {
+            // 外部 MCP 请求：强制先校验自身 token
+            const conn = session.mcpConnections.findByToken(channelToken);
+            if (!conn) {
+                return res.status(403).json({ ok: false, error: "channelToken 无效或已被撤销，拒绝绑定" });
+            }
+            identifier = conn.sessionId;
+        } else {
+            // 普通网页通过全局 token 选择绑定码或 sessionId 确认绑定
+            identifier = String(req.body?.sessionId || req.body?.bindCode || "");
+        }
+        if (!identifier) {
+            return res.status(400).json({ ok: false, error: "缺少通道身份标识或 channelToken" });
+        }
+        res.json({
+            ok: true,
+            binding: session.bindMcpConnection(identifier, String(req.body?.clientId || ""), req.body?.takeover === true, req.body?.force === true),
+        });
+    }));
+    app.post("/api/tools/validate", route(async (req, res) => {
+        session.validateToolRequest(String(req.body?.clientId || ""), String(req.body?.requestId || ""));
+        res.json({ ok: true });
+    }));
+    app.post("/api/tools", route(async (req, res) => {
+        const internalTokenHeader = req.headers["x-canvas-internal-token"];
+        const isInternal = Boolean(INTERNAL_MCP_TOKEN && internalTokenHeader === INTERNAL_MCP_TOKEN);
+        if (isInternal) {
+            return res.json({
+                ok: true,
+                result: await session.callMcpTool("", req.body?.name, req.body?.input || {}, true),
+            });
+        }
+        // 错误内部 key 不能落到焦点；外部调用必须持有有效 channelToken
+        const channelToken = typeof req.body?.channelToken === "string" ? req.body.channelToken.trim() : "";
+        if (!channelToken) {
+            return res.status(403).json({ ok: false, error: "缺少通道凭据 channelToken，拒绝工具调用" });
+        }
+        const conn = session.mcpConnections.findByToken(channelToken);
+        if (!conn) {
+            return res.status(403).json({ ok: false, error: "channelToken 无效或已失效，拒绝工具调用" });
+        }
+        if (conn.revoked) {
+            return res.status(403).json({ ok: false, error: "当前通道已被接管或撤销，拒绝工具调用" });
+        }
+        return res.json({
+            ok: true,
+            result: await session.callMcpTool(conn.sessionId, req.body?.name, req.body?.input || {}, false),
+        });
+    }));
+    app.get("/api/agent/web-switch", (_req, res) => {
+        res.json({
+            ok: true,
+            webAgentEnabled: session.isWebAgentEnabled,
+            occupant: session.getOccupant(),
+        });
+    });
+    app.post("/api/agent/web-switch", route(async (req, res) => {
+        if (typeof req.body?.enabled !== "boolean") {
+            return res.status(400).json({ ok: false, error: "enabled 参数必须是布尔值" });
+        }
+        try {
+            session.setWebAgentEnabled(req.body.enabled);
+        } catch (err) {
+            return res.status(409).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+        session.emitAll("connection_changed", session.connectionStatus());
+        return res.json({
+            ok: true,
+            webAgentEnabled: session.isWebAgentEnabled,
+            occupant: session.getOccupant(),
+        });
+    }));
     app.get("/agent/codex/workspace", (_req, res) => {
         const workspace = ensureSiteWorkspace(config);
         res.json({ ok: true, workspace, conversation: session.conversationStateSnapshot });
@@ -290,6 +437,7 @@ export function startHttpServer() {
         res.json({ ok: true, workspace: nextWorkspace, conversation: session.conversationStateSnapshot });
     }));
     app.post("/agent/codex/turn", codexMutation(async (req, res) => {
+        if (!session.isWebAgentEnabled) return res.status(403).json({ ok: false, error: "网页 Agent 未启用" });
         const attachments = Array.isArray(req.body?.attachments) ? (req.body.attachments as AgentAttachment[]) : [];
         const workspace = ensureSiteWorkspace(config);
         const prompt = String(req.body?.prompt || "");
@@ -315,6 +463,11 @@ export function startHttpServer() {
         const messageMetadata = await messageMetadataStore.recordPending(messageId, req.body?.messageMetadata);
         let threadId = activeThreadId;
         logger.info("Codex turn accepted", { threadId: req.body?.threadId, model: model || "default", reasoningEffort: effort || "default", promptLength: prompt.length, attachmentCount: attachments.length });
+        const leaseConflict = session.checkExternalLease("发起任务");
+        if (leaseConflict) {
+            await messageMetadataStore.remove(messageId, threadId).catch(() => undefined);
+            return res.status(409).json({ ok: false, error: leaseConflict });
+        }
         session.bindClient(clientId);
         session.markConversationRunning(threadId);
         session.setCodexState({ busy: true, threadId, turnId: "" });
@@ -421,6 +574,9 @@ export function startHttpServer() {
         res.status(ok ? 200 : 409).json({ ok, ...(ok ? {} : { error: "当前没有可停止的任务" }) });
     }));
     app.post("/agent/claude/turn", (req, res) => {
+        if (!session.isWebAgentEnabled) return res.status(403).json({ ok: false, error: "网页 Agent 未启用" });
+        const leaseConflict = session.checkExternalLease("发起任务");
+        if (leaseConflict) return res.status(409).json({ ok: false, error: leaseConflict });
         runClaudeTurn(String(req.body?.prompt || ""), emit);
         res.json({ ok: true });
     });
@@ -432,13 +588,14 @@ export function startHttpServer() {
     });
 
     app.listen(port, "127.0.0.1", () => {
-        console.log("Infinite Canvas Agent");
+        console.log("Infinite Studio Agent");
         checkVersions();
         console.log(`Local URL: ${config.url}`);
         console.log(`Connect token: ${config.token}`);
+        console.log(`片场自动连接地址: http://127.0.0.1:43863/sudio?mode=choose#agentUrl=${encodeURIComponent(config.url)}&agentToken=${encodeURIComponent(config.token)}`);
         console.log("Codex MCP is not installed by this command.");
-        console.log("Optional MCP add: codex mcp add infinite-canvas -- npx -y @basketikun/canvas-agent@latest mcp");
-        console.log("Remove manually added MCP: codex mcp remove infinite-canvas");
+        console.log("Optional MCP add: codex mcp add sudio -- powershell.exe -NoProfile -File E:/all-agent-workspace/infinite-studio/canvas-agent/start-local.ps1 -Mcp");
+        console.log("Remove manually added MCP: codex mcp remove sudio");
         if (logger.enabled) console.log(`Debug log: ${logger.filePath}`);
         logger.info("Canvas Agent started", { url: config.url, workspace: ensureSiteWorkspace(config).workspacePath, debugLog: logger.filePath });
         const activeThreadId = initialWorkspace.activeThreadId || "";

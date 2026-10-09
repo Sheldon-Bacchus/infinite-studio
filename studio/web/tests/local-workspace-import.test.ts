@@ -66,6 +66,16 @@ afterEach(() => {
     globalThis.fetch = originalFetch;
 });
 
+test("imports an AutoDL video backup and preserves its task provider", async () => {
+    const project = createProject({ videoTaskProvider: "autodl", videoTaskId: "saved-autodl-task", status: "success" });
+    project.nodes[0].type = "video";
+    const plan = await prepareLocalWorkspaceImport(createArchive(project));
+    expect(plan.errors).toEqual([]);
+    const imported = await commitLocalWorkspaceImport(plan);
+    expect(imported[0]?.data.nodes[0]?.metadata?.videoTaskProvider).toBe("autodl");
+    expect(imported[0]?.data.nodes[0]?.metadata?.videoTaskId).toBe("saved-autodl-task");
+});
+
 test("restores an inline child image without replacing it with its parent's file", async () => {
     const childDataUrl = `data:image/png;base64,${btoa("child-image")}`;
     const project = createProject({
@@ -84,6 +94,17 @@ test("restores an inline child image without replacing it with its parent's file
     expect(childFileId).toStartWith("import_");
     expect(childFileId).not.toBe(metadata?.storageKey?.slice("file:".length));
     expect(child?.content).toBe(`/api/files/${childFileId}/content`);
+});
+
+test("restores a legacy blob URL from the archived original", async () => {
+    const project = createProject({ content: "blob:expired-browser-session", storageKey: "image:main", references: ["image:main"] });
+    const plan = await prepareLocalWorkspaceImport(createArchive(project, false, [
+        { storageKey: "image:main", path: "projects/canvas-1/files/main.png", bytes: new Uint8Array([1, 2, 3]) },
+    ]));
+    expect(plan.errors).toEqual([]);
+    const imported = await commitLocalWorkspaceImport(plan);
+    expect(imported[0]?.data.nodes[0]?.metadata?.content).toStartWith("/api/files/import_");
+    expect(imported[0]?.data.nodes[0]?.metadata?.references?.[0]).toStartWith("file:import_");
 });
 
 test("does not let a data URL in prompt hide a missing media file", async () => {
@@ -153,6 +174,30 @@ test("rejects a different project with an existing canvas ID without overwriting
     await expect(commitLocalWorkspaceImport(plan)).rejects.toThrow("已拒绝导入");
     expect(projectCommitCalls).toEqual([]);
     expect(serverProjects.get("canvas-1")?.data.nodes[0]?.metadata?.prompt).toBe("saved");
+});
+
+test("imports conflict project as a copy with a new ID without overwriting existing canvas", async () => {
+    serverProjects.set("canvas-1", { workspaceId: "test-workspace", id: "canvas-1", revision: 3, data: createProject({ prompt: "saved" }) });
+    const plan = await prepareLocalWorkspaceImport(createArchive(createProject({ prompt: "incoming" }), false));
+    expect(plan.projects[0]?.state).toBe("conflict");
+
+    const imported = await commitLocalWorkspaceImport(plan, undefined, { asCopy: true });
+    expect(imported.length).toBe(1);
+    expect(imported[0].id).not.toBe("canvas-1");
+    expect(serverProjects.get("canvas-1")?.data.nodes[0]?.metadata?.prompt).toBe("saved");
+    expect(serverProjects.get(imported[0].id)?.data.nodes[0]?.metadata?.prompt).toBe("incoming");
+});
+
+test("imports identical project as a copy with a new ID instead of skipping it", async () => {
+    serverProjects.set("canvas-1", { workspaceId: "test-workspace", id: "canvas-1", revision: 1, data: createProject({ prompt: "identical" }) });
+    const plan = await prepareLocalWorkspaceImport(createArchive(createProject({ prompt: "identical" }), false));
+    expect(plan.projects[0]?.state).toBe("same");
+
+    const imported = await commitLocalWorkspaceImport(plan, undefined, { asCopy: true });
+    expect(imported.length).toBe(1);
+    expect(imported[0].id).not.toBe("canvas-1");
+    expect(serverProjects.has("canvas-1")).toBe(true);
+    expect(serverProjects.has(imported[0].id)).toBe(true);
 });
 
 function createProject(metadata: Record<string, unknown>, id = "canvas-1", nodeId = "node-1") {

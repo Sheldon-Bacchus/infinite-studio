@@ -65,6 +65,27 @@ export type CanvasNodeContext = {
     closePanel: () => void;
     // Plugin-private persistence isolated by namespace.
     storage: PluginStorage;
+    // 作品仓库受限 adapter 能力 (宿主统一注入，插件不直连内部 HTTP API)
+    works?: WorksCapability;
+};
+
+export type WorksWorkSummary = {
+    id: string;
+    title: string;
+    revision: number;
+    currentCommitId: string;
+};
+
+export type WorksCapability = {
+    getCurrentWork: () => WorksWorkSummary | null;
+    getAssets: () => Promise<unknown[]>;
+    saveAssetsAndWait: (assets: unknown[]) => Promise<unknown[]>;
+    readCanonicalAssets: () => Promise<unknown[]>;
+    archiveAssets: (assetIds: string[]) => Promise<void>;
+    archiveCanvasNodes?: (nodes: unknown[], canvasId: string, snapshot?: unknown) => Promise<{ archivedCount: number; pendingCount: number }>;
+    onWorkChanged: (handler: (work: WorksWorkSummary | null) => void) => () => void;
+    uploadMedia?: (file: Blob, filename: string, mimeType?: string) => Promise<{ fileId: string; sha256: string }>;
+    getMediaUrl?: (fileId: string) => string;
 };
 
 export type PluginStorage = {
@@ -132,6 +153,7 @@ export type CanvasPluginApp = {
     on: (event: string, handler: (payload: unknown) => void) => () => void;
     // Injects plugin styles and returns a cleanup function; the same key replaces previous styles.
     injectCSS: (css: string, key?: string) => () => void;
+    works?: WorksCapability;
 };
 
 // Default plugin package export.

@@ -1,0 +1,14 @@
+{
+  "id": "autodl-core-workflows",
+  "name": "AutoDL 核心视频工作流",
+  "version": "1.1.0",
+  "type": "model-channel-profile",
+  "profile": "./AutoDL-核心视频工作流.json",
+  "models": [
+    "minimax_h3_zm_u24",
+    "minimax_h3_image_audio_to_video_v2_15s",
+    "minimax_h3_image_audio_to_video",
+    "minimax_h3_lightx2v",
+    "wan2.2animate-v4-motion_retargeting"
+  ]
+}

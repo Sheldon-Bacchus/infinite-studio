@@ -3,6 +3,8 @@ import React from "react";
 import { emitCanvasEvent, onCanvasEvent } from "@/lib/canvas/canvas-event-bus";
 import type { CanvasPluginApp } from "@/types/canvas-plugin";
 
+import { createWorksCapability } from "@/lib/works/works-adapter";
+
 // Remote plugins obtain the host React instance through this runtime to avoid multiple React copies.
 export type PluginRuntime = CanvasPluginApp & {
     React: typeof React;
@@ -35,6 +37,7 @@ export function getPluginRuntime(): PluginRuntime {
             version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev",
             emit: emitCanvasEvent,
             on: onCanvasEvent,
+            works: createWorksCapability(),
         };
         (window as unknown as { InfiniteCanvasRuntime?: PluginRuntime }).InfiniteCanvasRuntime = runtime;
     }

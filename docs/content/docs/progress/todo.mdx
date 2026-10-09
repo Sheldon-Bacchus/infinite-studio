@@ -5,6 +5,10 @@ description: Planned follow-up work
 
 # TODO
 
+- 无限画布新功能移植范围待用户核对：引用排序与复制关系、本地素材MCP、视频下载、AutoDL工作流；结合片场自身保存冲突与状态显示补修。见 `docs/upstream-feature-port-review.md`，尚未实施。
+
+- Canvas Agent 连接专项：实现项已静态审阅并按 Spec Kit 规则更新 `specs/002-canvas-connection/tasks.md`；AGY 报告 Agent 构建及 29 个 session 用例通过。待完成 T001 原始断连原因、T004 桌面跨聊天身份、T008 全量 A/B E2E、T009 真实 app-server 分页、T010 第二启动路径、T011 独立 Infinite Canvas 移植。Web typecheck 因 AGY 执行环境内存多次低于门槛未启动；Go 全量测试被其他任务 `internal/works` 编译错误阻断。旧协议 7 故障截图中两项不满足证据标准，已改为 BLOCKED；fault 控制器的弹窗与画布就绪断言已修正，尚待浏览器重验。详见 pending-test、`specs/002-canvas-connection` 与 `artifacts/canvas-connection-e2e`。
+
 - 将恢复的 Next 片场工作台适配到当前 Vite/React Router 基底，接入已有本地项目/资产/文件 API；恢复入口 43862 与实验入口 43863 当前独立，未验收前不宣称完成统一。
 
 - 无限片场固定本地工作区：已完成本地 Go 服务、固定启动入口、逐画布/素材 CAS、媒体 fileId、ZIP v3 显式导入和 Agent/MCP 操作回执初版；见[设计规格与执行状态](../../../local-workspace-plan.md)、[执行计划](../../../superpowers/plans/local-workspace-implementation.md)、[验收记录](../../../local-workspace-verification.md)和[代码复用审计](../../../local-workspace-audit.md)。待完成构建/服务/浏览器验收、导入失败恢复核验、跨浏览器和重启验收、备份恢复核验。现有数据目录缺少 manifest，未启动服务或迁移数据；暂不移植私人无限画布或无限虾。

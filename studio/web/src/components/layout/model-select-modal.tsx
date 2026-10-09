@@ -61,7 +61,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
 
     const fetchModels = async () => {
         if (!channel) return;
-        if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
+        if (channel.apiFormat !== "autodl" && (!channel.baseUrl.trim() || !channel.apiKey.trim())) {
             message.error(t("config.modelSelect.missingConfig"));
             return;
         }
@@ -70,7 +70,11 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             const models = await fetchChannelModels(channel);
             setFetched(models);
             setActiveTab("new");
-            message.success(t("config.modelSelect.fetched", { count: models.length }));
+            if (channel.apiFormat === "autodl") {
+                message.info(t("config.modelSelect.autodlPresetLoaded") || "AutoDL 暂不支持在线拉取，已载入内置核心工作流模型");
+            } else {
+                message.success(t("config.modelSelect.fetched", { count: models.length }));
+            }
         } catch (error) {
             message.error(error instanceof Error ? error.message : t("config.modelSelect.fetchFailed"));
         } finally {

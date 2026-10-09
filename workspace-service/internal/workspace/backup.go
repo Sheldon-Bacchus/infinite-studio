@@ -1,9 +1,7 @@
 package workspace
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -326,20 +324,6 @@ func safeWorkspacePathForNewFile(root, relative string) (string, error) {
 		return "", err
 	}
 	return full, nil
-}
-
-func hashFile(path string) (string, int64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-	hasher := sha256.New()
-	bytes, err := io.Copy(hasher, file)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(hasher.Sum(nil)), bytes, nil
 }
 
 func copyFile(source, target string) error {

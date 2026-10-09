@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -5,6 +6,10 @@ import type { UploadedImage } from "@/services/image-storage";
 import type { UploadedFile } from "@/services/file-storage";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/types/canvas";
+
+export function createMediaIdentity() {
+    return { assetId: nanoid(), contentVersion: nanoid() };
+}
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
     const spec = getNodeSpec(type);
@@ -25,15 +30,15 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
 }
 
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, fileId: image.fileId, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
+    return { ...createMediaIdentity(), content: image.url, storageKey: image.storageKey, fileId: image.fileId, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
 }
 
 export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, fileId: video.fileId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
+    return { ...createMediaIdentity(), content: video.url, storageKey: video.storageKey, fileId: video.fileId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
 }
 
 export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, fileId: audio.fileId, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+    return { ...createMediaIdentity(), content: audio.url, storageKey: audio.storageKey, fileId: audio.fileId, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
 }
 
 export function referenceUrl(image: ReferenceImage) {

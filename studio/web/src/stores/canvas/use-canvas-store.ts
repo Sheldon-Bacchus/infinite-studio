@@ -10,7 +10,7 @@ import { LocalWorkspaceError, type RecordEnvelope } from "@/lib/local-workspace/
 import { commitLocalCanvasProject, deleteLocalCanvasProject, getLocalCanvasProject, getLocalWorkspaceOperation, isCanvasProject, isLocalWorkspaceMode, listLocalCanvasProjects } from "@/services/api/local-workspace";
 import { useLocalWorkspaceStore } from "@/stores/use-local-workspace-store";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
-import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
+import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, CanvasSubject, ViewportTransform } from "@/types/canvas";
 
 export type CanvasProject = {
     id: string;
@@ -19,6 +19,7 @@ export type CanvasProject = {
     updatedAt: string;
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
+    subjects?: CanvasSubject[];
     chatSessions: CanvasAssistantSession[];
     activeChatId: string | null;
     backgroundMode: CanvasBackgroundMode;
@@ -43,7 +44,8 @@ type CanvasStore = {
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[], deletedProjects?: CanvasDeletedProject[]) => void;
     adoptLocalCanvasProjects: (projects: RecordEnvelope<CanvasProject>[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>, operationId?: string) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "subjects" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>, operationId?: string) => void;
+    restoreWorksCanvasProject: (project: CanvasProject) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -172,6 +174,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     updatedAt: now,
                     nodes: [],
                     connections: [],
+                    subjects: [],
                     chatSessions: [],
                     activeChatId: null,
                     backgroundMode: "lines",
@@ -191,6 +194,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     updatedAt: now,
                     nodes: source.nodes || [],
                     connections: source.connections || [],
+                    subjects: source.subjects || [],
                     chatSessions: source.chatSessions || [],
                     activeChatId: source.activeChatId || null,
                     backgroundMode: source.backgroundMode || "lines",
@@ -242,11 +246,31 @@ export const useCanvasStore = create<CanvasStore>()(
             },
             updateProject: (id, patch, operationId) => {
                 if (isLocalWorkspaceMode && !get().hydrated) return;
+                const current = get().projects.find((item) => item.id === id);
+                if (!current) return;
+                if (!operationId) {
+                    const keys = Object.keys(patch) as (keyof typeof patch)[];
+                    const unchanged = keys.every((key) => {
+                        if (key === "viewport" && patch.viewport && current.viewport) {
+                            return patch.viewport.x === current.viewport.x &&
+                                   patch.viewport.y === current.viewport.y &&
+                                   patch.viewport.k === current.viewport.k;
+                        }
+                        return patch[key] === current[key];
+                    });
+                    if (unchanged) return;
+                }
                 if (operationId) requestedCanvasOperations.set(id, operationId);
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
                 }));
                 if (operationId && !get().projects.some((project) => project.id === id)) requestedCanvasOperations.delete(id);
+            },
+            restoreWorksCanvasProject: (project) => {
+                set((state) => ({
+                    projects: [project, ...state.projects.filter((item) => item.id !== project.id)],
+                    projectReloadVersions: { ...state.projectReloadVersions, [project.id]: (state.projectReloadVersions[project.id] || 0) + 1 },
+                }));
             },
         }),
         {

@@ -38,7 +38,7 @@ export default function CanvasPage() {
     const agentQuery = agentMode ? `?${searchParams.toString()}` : "";
     const enterProject = (id: string) => {
         const agentHash = hasAgentUrlBootstrap(window.location.hash) ? window.location.hash : "";
-        navigate(`/canvas/${id}${agentQuery}${agentHash}`, { replace: Boolean(agentHash) });
+        navigate(`/sudio/${id}${agentQuery}${agentHash}`, { replace: Boolean(agentHash) });
     };
     const createAndEnter = () => enterProject(createProject(t("canvas.defaultTitle", { count: projects.length + 1 })));
     const importCanvas = async (file?: File) => {
@@ -50,7 +50,9 @@ export default function CanvasPage() {
                 const newCount = plan.projects.filter((item) => item.state === "new").length;
                 const sameCount = plan.projects.filter((item) => item.state === "same").length;
                 const blocked = Boolean(plan.errors.length || conflicts.length || !newCount);
-                modal.confirm({
+                const canImportAsCopy = !plan.errors.length && plan.projects.length > 0;
+                let confirmModal: { destroy: () => void } | null = null;
+                confirmModal = modal.confirm({
                     title: "导入画布备份",
                     content: (
                         <div className="space-y-2">
@@ -58,7 +60,27 @@ export default function CanvasPage() {
                             <p>可新增 {newCount} 个画布；相同内容跳过 {sameCount} 个。</p>
                             {conflicts.length ? <p>画布 ID 冲突：{conflicts.map((item) => `${item.project.title} (${item.project.id})`).join("、")}</p> : null}
                             {plan.errors.length ? <ul className="list-disc pl-5">{plan.errors.map((error) => <li key={error}>{error}</li>)}</ul> : null}
-                            {!plan.errors.length && !conflicts.length && !newCount ? <p>没有需要导入的新画布。</p> : null}
+                            {!plan.errors.length && !conflicts.length && !newCount ? <p>没有需要导入的新画布。如需保留备份内容，可点击「导入为副本」。</p> : null}
+                        </div>
+                    ),
+                    footer: (_, { OkBtn, CancelBtn }) => (
+                        <div className="flex items-center justify-end gap-2">
+                            <CancelBtn />
+                            <Button
+                                disabled={!canImportAsCopy}
+                                onClick={async () => {
+                                    try {
+                                        confirmModal?.destroy();
+                                        const imported = await commitLocalWorkspaceImport(plan, (project) => adoptLocalCanvasProjects([project]), { asCopy: true });
+                                        message.success(`已作为副本导入 ${imported.length} 个画布`);
+                                    } catch (error) {
+                                        message.error(error instanceof Error ? error.message : t("canvas.importFailed"));
+                                    }
+                                }}
+                            >
+                                导入为副本
+                            </Button>
+                            <OkBtn />
                         </div>
                     ),
                     okButtonProps: { disabled: blocked },
@@ -90,8 +112,8 @@ export default function CanvasPage() {
             );
             data.projects.forEach((item) => importProject(item.project));
             message.success(t("canvas.imported", { count: data.projects.length }));
-        } catch {
-            message.error(t("canvas.importFailed"));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : t("canvas.importFailed"));
         } finally {
             if (inputRef.current) inputRef.current.value = "";
         }

@@ -17,3 +17,6 @@ web/public/plugins
 plugins/canvas/*/dist
 plugins/canvas/*/node_modules
 web/public/plugins
+
+# Local acceptance runtime and connection credentials
+artifacts/canvas-connection-e2e/

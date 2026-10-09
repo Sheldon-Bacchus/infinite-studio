@@ -421,10 +421,10 @@ func validateStableMediaReferences(value any, key string) error {
 		}
 	case string:
 		isInlineMedia := strings.HasPrefix(typed, "data:image/") || strings.HasPrefix(typed, "data:audio/") || strings.HasPrefix(typed, "data:video/") || strings.HasPrefix(typed, "data:application/")
-		if strings.HasPrefix(typed, "blob:") || ((key == "dataUrl" || key == "content" || key == "url" || key == "coverUrl") && isInlineMedia) {
+		if strings.HasPrefix(typed, "blob:") || ((key == "dataUrl" || key == "content" || key == "url" || key == "coverUrl" || key == "audioUrl" || key == "src") && isInlineMedia) {
 			return fmt.Errorf("%w: 持久化媒体必须使用工作区 fileId", ErrInvalidRequest)
 		}
-		if (key == "storageKey" || key == "references") && (strings.HasPrefix(typed, "image:") || strings.HasPrefix(typed, "video:") || strings.HasPrefix(typed, "audio:") || strings.HasPrefix(typed, "video-reference:") || strings.HasPrefix(typed, "audio-reference:")) {
+		if (key == "storageKey" || key == "references" || key == "audioStorageKey") && (strings.HasPrefix(typed, "image:") || strings.HasPrefix(typed, "video:") || strings.HasPrefix(typed, "audio:") || strings.HasPrefix(typed, "video-reference:") || strings.HasPrefix(typed, "audio-reference:")) {
 			return fmt.Errorf("%w: 不接受浏览器本地媒体 storageKey", ErrInvalidRequest)
 		}
 	}
