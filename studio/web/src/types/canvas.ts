@@ -229,8 +229,10 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    generationId?: string;
+    startWorkId?: string;
     videoTaskId?: string;
-    videoTaskProvider?: "openai" | "gemini";
+    videoTaskProvider?: "openai" | "gemini" | "autodl" | "plugin";
     assetId?: string;
     contentVersion?: string;
     videoBindings?: CanvasVideoBinding[];

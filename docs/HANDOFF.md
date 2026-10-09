@@ -486,3 +486,16 @@ AGY job1791519419528970500-ec59670c7f19e2893728a703运行9m26s后failed/quota_ex
 - AGY 遗留修复执行耗时 10m39s；工具未返回模型；usage total_tokens=1262425，未返回费用。刷新性能仅确认防重复保存改动，尚无用户页面前后性能基准。
 2026-10-09：组装提示词面板直接展示视频输入候选的最终提示词、资源数量、确认状态和校验问题，使用与提交预览相同的 buildVideoInputCandidate。全量 typecheck 仍有插件 SDK 和 generationId 既有错误；本次组件未出现在已返回错误中，网页视觉验收待完成。
 2026-10-09 SDD实施：组装提示词上方编辑、下方只读最终结果，默认展开，支持折叠和放大；显示连接/发送计数、来源、确认状态、原位未解析引用。Edge实测空编辑框连入文本仍显示完整结果，折叠保留错误摘要。reference-provenance及autodl测试7通过26断言；typecheck仍有既有类型错误。真实测试画布存在身份/引用/适配器问题，未改正文、未生成。逐条引用绑定/定位仍使用既有入口，本次只提供资源选择快捷入口。
+
+
+### 任务队列与日志 SDD 最终设计
+
+按用户要求继续追加原 spec，各组件职责、状态契约、恢复与验收场景见 specs/002-canvas-connection/spec.md、plan.md、tasks.md；生成数据契约追加到 specs/001-local-works/data-model.md。采用全局任务抽屉＋节点阶段＋单任务概览/发送内容/日志/结果。区分检查未通过未提交、提交受理未知、远程生成与本地保存失败；不自动重发未知提交。Q000 文档完成，Q001–Q011 未实施。本轮只更新方案与 todo，无功能变更，pending-test 与 CHANGELOG 无需新增。没有调用 AGY、Canvas、修改创作正文、配置、服务或执行生成。
+
+## 2026-10-09 任务队列与日志实施交接
+
+继续扩展既有 specs/002-canvas-connection，视频首期代码已实现并静态审阅。顶栏任务中心提供概览/发送内容/日志/结果、画布与模型筛选、服务诊断、节点定位；配置与视频节点显示状态入口。Generation 本地历史附加尝试状态、阶段事件、脱敏输入快照，以真实任务 ID 原子持久化后查询；提交未知禁止自动重提，恢复使用原渠道/provider，保存失败保持需处理。navigator.locks 防同源多标签重复执行；本地队列可暂停/继续/移出。远程取消、数值并发设置、脚本插件跨刷新恢复不在已实现能力中。
+
+主模型最终复验：generation-task-state/history 共 9 pass；tracked-video-task 共 9 pass，合计 18 pass / 0 fail。浏览器核验任务中心与定位，Workspace/Web/Agent 已启动。未运行整站构建或收费生成。真实刷新/双标签断网及完整验收场景另列 pending-test。
+
+AGY 限定修改 studio/web/src/services/api/video.ts：提交前持久化回调与严格媒体保存选项；主模型审阅后接入。报告：E:/all-agent-workspace/runtime/runs/infinite-studio/2026-10-09_210023_prompt-composer-sdd/output/agy-task-video-api-report.md。AGY 耗时 2分58秒；返回 token 总量 216094，费用未提供。其他组件由并行原生 subagents 与主模型完成；没有改写创作正文或触发媒体生成。

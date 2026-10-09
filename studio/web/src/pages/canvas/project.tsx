@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, createVideoGenerationTaskFromInput, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -46,7 +46,7 @@ import { useAgentStore } from "@/stores/use-agent-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useWorksStore } from "@/stores/use-works-store";
 import { restoreCanvasSnapshot, savePendingArchiveItem, type CanvasBindingRecord } from "@/lib/works/canvas-archive";
-import { startGenerationHistory, getGenerationHistory, updateGenerationHistory, commitGenerationToWork, sanitizeGenerationParameters } from "@/lib/works/generation-history";
+import { startGenerationHistory, getGenerationHistory, updateGenerationHistory, updateGenerationTask, commitGenerationToWork, sanitizeGenerationParameters, listGenerationHistories } from "@/lib/works/generation-history";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -56,6 +56,7 @@ import { downloadVideoNode } from "@/lib/canvas/video-download";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, createMediaIdentity, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { buildDetailedReferencePlan, createGenerationInputSnapshot, buildSubmissionProvenanceReferences } from "@/lib/canvas/canvas-reference-plan";
 import { buildVideoInputCandidate, compiledVideoInputFromSnapshot, getVideoInputAdapter, type CompiledVideoInput } from "@/lib/canvas/canvas-video-inputs";
+import { hasTrackedVideoTask, runTrackedVideoTask } from "@/lib/canvas/tracked-video-task";
 import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, getGroupWrapRect, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -290,6 +291,8 @@ function InfiniteCanvasPage() {
     const connectionTargetNodeIdRef = useRef(connectionTargetNodeId);
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
+    const startingVideoNodesRef = useRef(new Set<string>());
+    const handledTaskNavigationRef = useRef("");
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const videoPollIdsRef = useRef(new Set<string>());
     const restoringProjectRef = useRef(false);
@@ -333,167 +336,98 @@ function InfiniteCanvasPage() {
 
     const completeVideoNodeTask = useCallback(
         async (nodeId: string, config: Parameters<typeof buildGenerationConfig>[0], prompt: string, images: Parameters<typeof createVideoGenerationTask>[2], signal: AbortSignal, extra: CanvasNodeData["metadata"] = {}, videos: ReferenceVideo[] = [], audios: ReferenceAudio[] = [], input?: CompiledVideoInput) => {
-            const task = input ? await createVideoGenerationTaskFromInput(config, input, { signal }) : await createVideoGenerationTask(config, prompt, images, { signal, videos, audios });
-            if (task.provider !== "plugin") {
-                setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
-            }
-            const video = await storeGeneratedVideo(await waitForVideoGenerationTask(config, task, { signal }));
-            setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...extra }) : item)));
             const startWorkId = (extra?.startWorkId as string) || undefined;
             const genId = (extra?.generationId as string) || nanoid();
-            const archived = await savePendingArchiveItem({
-                nodeId,
-                title: prompt.slice(0, 32) || "Generated Video",
-                kind: "video",
-                sourceFileId: video.fileId,
-                storageKey: video.storageKey,
-                url: video.url,
-                bytes: video.bytes,
-                mimeType: video.mimeType,
-                prompt,
-                targetWorkId: startWorkId,
-                workId: startWorkId,
+            const tracked = await runTrackedVideoTask(config, {
                 generationId: genId,
-                metadata: { model: config.model, ...extra },
-                createdAt: new Date().toISOString(),
+                nodeId,
+                lockKey: `canvas:${projectId}:source:${input?.snapshot.sourceNodeId || nodeId}`,
+                resultNodeId: nodeId,
+                signal,
+                createTask: (onSubmitting) => input
+                    ? createVideoGenerationTaskFromInput(config, input, { signal, onSubmitting })
+                    : createVideoGenerationTask(config, prompt, images, { signal, videos, audios, onSubmitting }),
+                onEvent: (event) => {
+                    if (event.phase === "submission") {
+                        setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
+                    }
+                },
+                onAccepted: async (task) => {
+                    if (task.provider === "plugin") return;
+                    setNodes((prev) => prev.map((item) => item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider, model: task.model, generationId: genId } } : item));
+                },
+                onSaved: async (video, task) => {
+                    setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...extra }) : item)));
+                    const archived = await savePendingArchiveItem({ nodeId, title: prompt.slice(0, 32) || "Generated Video", kind: "video", sourceFileId: video.fileId, storageKey: video.storageKey, url: video.url, bytes: video.bytes, mimeType: video.mimeType, prompt, targetWorkId: startWorkId, workId: startWorkId, generationId: genId, metadata: { model: config.model, ...extra }, createdAt: new Date().toISOString() });
+                    await updateGenerationHistory(genId, { taskId: task.provider === "plugin" ? undefined : task.id, outputFileIds: archived.mediaDescriptor ? [archived.mediaDescriptor.fileId] : [] });
+                    const committed = await commitGenerationToWork(genId, "succeeded");
+                    if (startWorkId && !committed) throw new Error("视频已下载，但作品归档尚未保存");
+                    return Boolean(committed);
+                },
             });
-
-            await updateGenerationHistory(genId, {
-                taskId: task.id,
-                status: "succeeded",
-                outputFileIds: archived.mediaDescriptor ? [archived.mediaDescriptor.fileId] : [],
-            });
-            await commitGenerationToWork(genId);
+            const task = tracked.task;
+            if (task.provider !== "plugin") {
+                setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider, model: task.model } } : item)));
+            }
         },
-        [],
+        [projectId],
     );
 
     const pollVideoNodeTask = useCallback(
-        async (node: CanvasNodeData, silent = false) => {
-            const taskId = node.metadata?.videoTaskId;
-            if (!taskId || node.metadata?.content || generationRequestsRef.current.has(node.id) || videoPollIdsRef.current.has(node.id)) return;
-            const genId = typeof node.metadata?.generationId === "string" ? node.metadata.generationId : nanoid();
-            const startWorkId = typeof node.metadata?.startWorkId === "string" ? node.metadata.startWorkId : "";
+        async (node: CanvasNodeData, silent = false, attemptId?: string) => {
+            if (generationRequestsRef.current.has(node.id) || videoPollIdsRef.current.has(node.id)) return;
             videoPollIdsRef.current.add(node.id);
             let controller: AbortController | undefined;
             try {
-                const generationConfig = buildGenerationConfig(effectiveConfig, node, "video");
-                if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                    if (silent) {
-                        setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: t("workbench.configFirst") } } : item)));
-                        return;
-                    }
-                    openConfigDialog(true);
-                    return;
+                let history = attemptId ? await getGenerationHistory(attemptId) : typeof node.metadata?.generationId === "string" ? await getGenerationHistory(node.metadata.generationId) : null;
+                if (!history) history = (await listGenerationHistories()).find((entry) => entry.canvasId === projectId && (entry.task?.resultNodeId === node.id || entry.nodeId === node.id) && entry.taskId) || null;
+                const taskId = history?.taskId || node.metadata?.videoTaskId;
+                if (!taskId) throw new Error("未找到远程任务 ID，禁止重新提交生成");
+                if (history?.canvasId && history.canvasId !== projectId) throw new Error("任务属于其他画布");
+                const model = history?.task?.model || history?.modelChannel || node.metadata?.model;
+                if (!model) throw new Error("原任务模型未知，无法恢复查询");
+                const base = buildGenerationConfig(effectiveConfig, node, "video");
+                const original = history?.parameters || {};
+                const config = { ...base, model };
+                for (const field of ["size", "vquality", "videoSeconds", "videoMode", "videoGenerateAudio", "videoWatermark"] as const) {
+                    if (typeof original[field] === "string") config[field] = original[field] as string;
                 }
-                if (!(await getGenerationHistory(genId))) {
-                    const nodeSnap = node.metadata?.generationInputSnapshot;
-                    const isUnifiedSnap = Boolean(nodeSnap && typeof nodeSnap === "object" && "references" in nodeSnap);
-                    const recoveredProv = isUnifiedSnap ? nodeSnap : undefined;
-                    const recoveredVidSnap = isUnifiedSnap ? (nodeSnap as Record<string, unknown>)?.videoInputSnapshot : (nodeSnap && typeof nodeSnap === "object" && "mapping" in nodeSnap ? nodeSnap : undefined);
-
-                    await startGenerationHistory({
-                        id: genId,
-                        workId: startWorkId,
-                        shotId: typeof node.metadata?.shotId === "string" ? node.metadata.shotId : undefined,
-                        episodeId: typeof node.metadata?.episodeId === "string" ? node.metadata.episodeId : undefined,
-                        sourceRevision: typeof node.metadata?.sourceRevision === "string" ? node.metadata.sourceRevision : undefined,
-                        inputSnapshot: {
-                            recoveredRemoteTask: true,
-                            inputsKnown: Boolean(nodeSnap),
-                            videoTaskId: taskId,
-                            prompt: typeof node.metadata?.prompt === "string" ? node.metadata.prompt : undefined,
-                            provenance: recoveredProv,
-                            videoInputSnapshot: recoveredVidSnap,
-                            generationInputSnapshot: nodeSnap,
-                        },
-                        modelChannel: generationConfig.model || "default",
-                        parameters: generationConfig,
-                        taskId,
-                    });
-                }
-                if (!node.metadata?.generationId) {
-                    setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, generationId: genId, startWorkId } } : item));
-                }
-                setRunningNodeId(node.id);
-                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
+                const request = resolveModelRequestConfig(config, model);
+                if (typeof original.requestBaseUrl === "string" && original.requestBaseUrl !== request.baseUrl) throw new Error("原渠道地址已改变，请先核对渠道后恢复查询");
+                if (!isAiConfigReady(config, model)) { if (!silent) openConfigDialog(true); throw new Error("原任务渠道尚未配置，无法恢复查询"); }
+                const provider = history?.task?.provider || node.metadata?.videoTaskProvider;
+                if (!provider || provider === "plugin") throw new Error("原任务未提供可恢复的远程协议；不会猜测或重新生成");
+                const genId = history?.id || nanoid();
+                const startWorkId = history?.workId || (typeof node.metadata?.startWorkId === "string" ? node.metadata.startWorkId : "");
+                if (!history) await startGenerationHistory({ id: genId, nodeId: node.id, canvasId: projectId, workId: startWorkId, taskId, modelChannel: model, inputSnapshot: { recoveredRemoteTask: true, inputsKnown: false, prompt: node.metadata?.prompt }, parameters: config, task: { status: "needs_attention", phase: "generation", submission: "accepted", provider, model, resultNodeId: node.id } });
+                if (history?.task && ["failed", "blocked", "cancelled"].includes(history.task.status)) throw new Error("此尝试已明确结束，不能恢复为执行中");
+                if (history?.task?.status === "succeeded") { if (!silent) message.info("本次结果已经保存"); return; }
                 controller = startGenerationRequest(node.id, node.id, node.id);
-                const video = await storeGeneratedVideo(await waitForVideoGenerationTask(generationConfig, { id: taskId, provider: node.metadata?.videoTaskProvider === "gemini" ? "gemini" : "openai", model: generationConfig.model }, { signal: controller.signal }));
-                setNodes((prev) =>
-                    prev.map((item) =>
-                        item.id === node.id
-                            ? applyGeneratedVideo(item, video, {
-                                  prompt: item.metadata?.prompt,
-                                  model: generationConfig.model,
-                                  size: generationConfig.size,
-                                  seconds: generationConfig.videoSeconds,
-                                  vquality: generationConfig.vquality,
-                                  generateAudio: generationConfig.videoGenerateAudio,
-                                  watermark: generationConfig.videoWatermark,
-                                  videoMode: generationConfig.videoMode,
-                              })
-                            : item,
-                    ),
-                );
-                const archived = await savePendingArchiveItem({
-                    nodeId: node.id,
-                    title: (node.metadata?.prompt || node.title || "Generated Video").slice(0, 32),
-                    kind: "video",
-                    sourceFileId: video.fileId,
-                    storageKey: video.storageKey,
-                    url: video.url,
-                    bytes: video.bytes,
-                    mimeType: video.mimeType,
-                    prompt: node.metadata?.prompt,
-                    targetWorkId: startWorkId,
-                    workId: startWorkId,
-                    generationId: genId,
-                    metadata: { model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds },
-                    createdAt: new Date().toISOString(),
+                setRunningNodeId(node.id);
+                const signal = controller.signal;
+                const prompt = typeof history?.inputSnapshot.prompt === "string" ? history.inputSnapshot.prompt : node.metadata?.prompt || "";
+                await runTrackedVideoTask(config, {
+                    generationId: genId, nodeId: node.id, lockKey: `canvas:${projectId}:source:${history?.nodeId || node.id}`, resultNodeId: node.id, signal,
+                    existingTask: { id: taskId, provider, model },
+                    onAccepted: async () => { setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, generationId: genId, videoTaskId: taskId, videoTaskProvider: provider, model, status: NODE_STATUS_LOADING } } : item)); },
+                    onSaved: async (video) => {
+                        const archived = await savePendingArchiveItem({ nodeId: node.id, title: (prompt || node.title || "Generated Video").slice(0, 32), kind: "video", sourceFileId: video.fileId, storageKey: video.storageKey, url: video.url, bytes: video.bytes, mimeType: video.mimeType, prompt, targetWorkId: startWorkId, workId: startWorkId, generationId: genId, metadata: { model }, createdAt: new Date().toISOString() });
+                        await updateGenerationHistory(genId, { outputFileIds: archived.mediaDescriptor ? [archived.mediaDescriptor.fileId] : [] });
+                        const committed = await commitGenerationToWork(genId, "succeeded");
+                        if (startWorkId && !committed) throw new Error("文件已保存，但作品归档失败");
+                        setNodes((prev) => prev.map((item) => item.id === node.id ? applyGeneratedVideo(item, video, { prompt, model, generationId: genId }) : item));
+                        return Boolean(committed);
+                    },
                 });
-
-                await updateGenerationHistory(genId, {
-                    taskId: taskId,
-                    status: "succeeded",
-                    outputFileIds: archived.mediaDescriptor ? [archived.mediaDescriptor.fileId] : [],
-                });
-                await commitGenerationToWork(genId);
             } catch (error) {
-                if (isGenerationCanceled(error)) {
-                    await updateGenerationHistory(genId, { status: "canceled" });
-                    await commitGenerationToWork(genId);
-                    return;
-                }
-                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
-                message.error(errorDetails);
-                void updateGenerationHistory(genId, {
-                    status: "failed",
-                    errorReason: errorDetails,
-                }).then(() => commitGenerationToWork(genId)).catch(() => undefined);
-                setNodes((prev) =>
-                    prev.map((item) =>
-                        item.id === node.id
-                            ? {
-                                  ...item,
-                                  metadata: {
-                                      ...item.metadata,
-                                      status: item.metadata?.content ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR,
-                                      errorDetails: item.metadata?.content ? undefined : errorDetails,
-                                      ...(isVideoTaskFailed(error) ? { videoTaskId: undefined } : {}),
-                                  },
-                              }
-                            : item,
-                    ),
-                );
+                const reason = error instanceof Error ? error.message : "恢复失败";
+                if (!silent && !isGenerationCanceled(error)) message.error(reason);
+                setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: item.metadata?.content ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: reason } } : item));
             } finally {
                 videoPollIdsRef.current.delete(node.id);
-                if (controller) {
-                    finishGenerationRequest(node.id, controller);
-                    setRunningNodeId((current) => (current === node.id ? null : current));
-                }
+                if (controller) { finishGenerationRequest(node.id, controller); setRunningNodeId((current) => current === node.id ? null : current); }
             }
-        },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
+        }, [effectiveConfig, projectId, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
     const stopGenerationByRunningId = useCallback((runningId: string) => {
@@ -1234,6 +1168,52 @@ function InfiniteCanvasPage() {
     );
 
     useEffect(() => () => void (focusAnimRef.current && cancelAnimationFrame(focusAnimRef.current)), []);
+
+    useEffect(() => {
+        const onFocus = (event: Event) => {
+            const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+            if (!nodeId) return;
+            if (!nodesRef.current.some((node) => node.id === nodeId)) {
+                message.warning("任务关联的画布节点不存在或当前画布未加载");
+                return;
+            }
+            focusNode(nodeId);
+        };
+        const onResume = (event: Event) => {
+            const detail = (event as CustomEvent<{ nodeId?: string; attemptId?: string }>).detail || {};
+            const node = detail.nodeId ? nodesRef.current.find((item) => item.id === detail.nodeId) : undefined;
+            if (!node || node.type !== CanvasNodeType.Video) {
+                message.warning("找不到可恢复的视频节点");
+                return;
+            }
+            void pollVideoNodeTask(node, false, detail.attemptId);
+        };
+        const onStop = (event: Event) => {
+            const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+            if (nodeId) stopGenerationByRunningId(nodeId);
+        };
+        window.addEventListener("infinite-studio:task-focus", onFocus);
+        window.addEventListener("infinite-studio:task-resume", onResume);
+        window.addEventListener("infinite-studio:task-stop", onStop);
+        return () => {
+            window.removeEventListener("infinite-studio:task-focus", onFocus);
+            window.removeEventListener("infinite-studio:task-resume", onResume);
+            window.removeEventListener("infinite-studio:task-stop", onStop);
+        };
+    }, [focusNode, message, pollVideoNodeTask, stopGenerationByRunningId]);
+
+    useEffect(() => {
+        if (!projectReady) return;
+        const nodeId = searchParams.get("taskNode");
+        const attemptId = searchParams.get("taskResume");
+        const key = `${projectId}:${nodeId}:${attemptId}`;
+        if (!nodeId || handledTaskNavigationRef.current === key) return;
+        const node = nodes.find((item) => item.id === nodeId);
+        if (!node) { message.warning("任务关联节点已删除，历史仍保留"); handledTaskNavigationRef.current = key; return; }
+        handledTaskNavigationRef.current = key;
+        focusNode(nodeId);
+        if (attemptId && node.type === CanvasNodeType.Video) void pollVideoNodeTask(node, false, attemptId);
+    }, [projectReady, projectId, nodes, searchParams, focusNode, pollVideoNodeTask, message]);
 
     const setZoomScale = useCallback(
         (scale: number) => {
@@ -2455,6 +2435,13 @@ function InfiniteCanvasPage() {
 
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
+            if (mode === "video" && (startingVideoNodesRef.current.has(nodeId) || hasTrackedVideoTask(`canvas:${projectId}:source:${nodeId}`))) { message.info("该节点任务正在执行，请查看任务中心"); return; }
+            if (mode === "video") startingVideoNodesRef.current.add(nodeId);
+            try {
+            if (mode === "video") {
+                const unresolved = (await listGenerationHistories()).find((entry) => entry.canvasId === projectId && entry.nodeId === nodeId && entry.task && !["succeeded", "failed", "blocked", "cancelled"].includes(entry.task.status) && ["in_flight", "unknown", "accepted"].includes(entry.task.submission));
+                if (unresolved) { message.warning("该节点已有提交待核对或远程任务，请先在任务中心处理，避免重复生成"); window.dispatchEvent(new CustomEvent("infinite-studio:task-open", { detail: { attemptId: unresolved.id } })); return; }
+            }
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
@@ -2500,11 +2487,15 @@ function InfiniteCanvasPage() {
                 if (!sourceNode) return;
                 const candidate = buildVideoInputCandidate({ sourceNode, nodes: nodesRef.current, connections: connectionsRef.current, subjects: currentProject?.subjects || [], config: generationConfig, prompt });
                 if (candidate.issues.length) {
+                    const blockedId = nanoid();
+                    await startGenerationHistory({ id: blockedId, nodeId: sourceNode.id, canvasId: currentProject?.id, workId: useWorksStore.getState().currentWorkId || "", inputSnapshot: { mode: "video", prompt, videoInputCandidate: candidate, issues: candidate.issues.map((issue) => ({ code: issue.code, message: issue.message })) }, modelChannel: generationConfig.model || "default", parameters: generationConfig, task: { status: "blocked", phase: "validation", submission: "not_sent", connection: "available", outputState: "none", model: generationConfig.model, resultNodeId: sourceNode.id, reasonCode: candidate.issues[0].code } }).then(() => updateGenerationTask(blockedId, { status: "blocked", phase: "validation", submission: "not_sent" }, "视频输入检查未通过", candidate.issues[0].code));
                     message.error(candidate.issues[0].message);
                     return;
                 }
                 const confirmed = sourceNode.metadata?.confirmedVideoInput;
                 if (!confirmed || confirmed.fingerprint !== candidate.fingerprint) {
+                    const blockedId = nanoid();
+                    await startGenerationHistory({ id: blockedId, nodeId: sourceNode.id, canvasId: currentProject?.id, workId: useWorksStore.getState().currentWorkId || "", inputSnapshot: { mode: "video", prompt, videoInputCandidate: candidate, confirmation: "required" }, modelChannel: generationConfig.model || "default", parameters: generationConfig, task: { status: "blocked", phase: "validation", submission: "not_sent", connection: "available", outputState: "none", model: generationConfig.model, resultNodeId: sourceNode.id, reasonCode: "confirmation_required" } }).then(() => updateGenerationTask(blockedId, { status: "blocked", phase: "validation", submission: "not_sent" }, "视频输入等待确认", "confirmation_required"));
                     message.warning(t("canvas.videoInput.needsConfirmation"));
                     return;
                 }
@@ -2617,7 +2608,8 @@ function InfiniteCanvasPage() {
                         })),
                     },
                     modelChannel: generationConfig.model || "default",
-                    parameters: { ...generationConfig, promptRevisionId },
+                    parameters: { ...generationConfig, requestBaseUrl: resolveModelRequestConfig(generationConfig, generationConfig.model).baseUrl, promptRevisionId },
+                    task: mode === "video" ? { model: generationConfig.model, resultNodeId: undefined } : undefined,
                 });
             } catch (error) {
                 const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
@@ -2843,6 +2835,7 @@ function InfiniteCanvasPage() {
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
                     );
                     if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
+                    await updateGenerationTask(generationId, { resultNodeId: videoId, model: generationConfig.model }, "已创建视频结果节点");
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
                         await completeVideoNodeTask(videoId, generationConfig, effectivePrompt, generationContext.referenceImages, controller.signal, {
@@ -3091,6 +3084,8 @@ function InfiniteCanvasPage() {
                 finishGenerationRequest(nodeId, runController);
                 setRunningNodeId(null);
             }
+            } catch (error) { message.error(error instanceof Error ? error.message : "任务记录保存失败，本次未提交"); }
+            finally { if (mode === "video") startingVideoNodesRef.current.delete(nodeId); }
         },
         [completeVideoNodeTask, currentProject?.subjects, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
@@ -3100,6 +3095,15 @@ function InfiniteCanvasPage() {
 
     const handleRetryNode = useCallback(
         async (node: CanvasNodeData, imageId?: string) => {
+            const existingGenerationId = typeof node.metadata?.generationId === "string" ? node.metadata.generationId : undefined;
+            if (existingGenerationId) {
+                const existingAttempt = await getGenerationHistory(existingGenerationId);
+                const taskState = existingAttempt?.task;
+                if (taskState && (taskState.submission === "unknown" || (taskState.submission === "in_flight" && !existingAttempt.taskId))) {
+                    message.warning("提交结果尚未确认，请先在任务中心核对原任务，不能直接重新提交");
+                    return;
+                }
+            }
             if (hasResumableVideoTask(node)) {
                 await pollVideoNodeTask(node);
                 return;
@@ -3624,6 +3628,7 @@ function InfiniteCanvasPage() {
                 renderPluginPanel(panelNode)
             ) : panelNode.type === CanvasNodeType.Config ? (
                 <CanvasConfigComposer
+                    canvasId={projectId}
                     nodeId={panelNode.id}
                     nodes={nodes}
                     connections={connections}
@@ -3781,6 +3786,7 @@ function InfiniteCanvasPage() {
 
                     {visibleNodes.map((node) => (
                         <CanvasNode
+                            canvasId={projectId}
                             key={node.id}
                             data={node}
                             scale={viewport.k}

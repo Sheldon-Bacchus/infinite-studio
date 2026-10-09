@@ -36,6 +36,7 @@ const {
     sanitizeGenerationParameters,
     startGenerationHistory,
     subscribeGenerationHistory,
+    updateGenerationTask,
     updateGenerationHistory,
 } = await import("../src/lib/works/generation-history");
 
@@ -100,4 +101,20 @@ test("generation parameters recursively remove credentials but retain stable sto
     expect(serialized).not.toContain("secret-token");
     expect(sanitized.storageKey).toBe("local-storage-key");
     expect(sanitized.sourceKey).toBe("stable-source-key");
+});
+
+test("keeps the history status aligned with a terminal task after a late failure update", async () => {
+    const started = await startGenerationHistory({
+        id: "terminal-consistency",
+        workId: "work-1",
+        inputSnapshot: { mode: "video", prompt: "snapshot" },
+        modelChannel: "model-a",
+    });
+
+    await updateGenerationTask(started.id, { status: "succeeded", phase: "save", outputState: "downloaded" }, "结果已保存");
+    await updateGenerationHistory(started.id, { status: "failed", errorReason: "late failure event" });
+    const updated = await getGenerationHistory(started.id);
+
+    expect(updated?.status).toBe("succeeded");
+    expect(updated?.task?.status).toBe("succeeded");
 });

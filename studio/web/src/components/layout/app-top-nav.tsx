@@ -1,4 +1,4 @@
-import { Bot, Menu } from "lucide-react";
+import { Bot, ListTodo, Menu } from "lucide-react";
 import { Button, Tooltip } from "antd";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -12,11 +12,14 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { discoverLocalAgentBootstrap } from "@/services/api/canvas-agent";
 import { isLocalWorkspaceMode } from "@/services/api/local-workspace";
+import { TaskCenter } from "@/components/tasks/task-center";
+import { useGenerationTaskStore } from "@/stores/use-generation-task-store";
 
 export function AppTopNav() {
     const { t } = useTranslation();
     const { pathname } = useLocation();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
+    const [taskCenterOpen, setTaskCenterOpen] = useState(false);
     const autoConnectRef = useRef(false);
     const agentToken = useAgentStore((state) => state.token);
     const agentEnabled = useAgentStore((state) => state.enabled);
@@ -24,6 +27,8 @@ export function AppTopNav() {
     const connectAgent = useAgentStore((state) => state.connectAgent);
     const togglePanel = useAgentStore((state) => state.togglePanel);
     const panelOpen = useAgentStore((state) => state.panelOpen);
+    const taskEntries = useGenerationTaskStore((state) => state.entries);
+    const taskCount = taskEntries.filter((entry) => ["checking", "queued", "running", "needs_attention", "blocked"].includes(entry.task?.status || entry.status)).length;
     const hideHeader = /^\/sudio\/[^/]+/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.path === `/${slug}`) ? (navigationTools.find((tool) => tool.path === `/${slug}`)!.slug as NavigationToolSlug) : undefined;
@@ -46,6 +51,12 @@ export function AppTopNav() {
             connectAgent({ silent: true });
         })();
     }, [agentConnected, agentEnabled, agentToken, connectAgent]);
+
+    useEffect(() => {
+        const openTask = () => setTaskCenterOpen(true);
+        window.addEventListener("infinite-studio:task-open", openTask);
+        return () => window.removeEventListener("infinite-studio:task-open", openTask);
+    }, []);
 
     return (
         <>
@@ -98,6 +109,21 @@ export function AppTopNav() {
                         </div>
 
                         <div className="my-auto flex h-9 min-w-0 items-center justify-end gap-2 justify-self-end whitespace-nowrap">
+                            <Tooltip title="任务中心">
+                                <Button
+                                    type="text"
+                                    shape="circle"
+                                    className="!h-8 !w-8 !min-w-8"
+                                    icon={
+                                        <span className="relative">
+                                            <ListTodo className="size-4" />
+                                            {taskCount > 0 && <span className="absolute -right-2 -top-2 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">{taskCount > 9 ? "9+" : taskCount}</span>}
+                                        </span>
+                                    }
+                                    onClick={() => setTaskCenterOpen(true)}
+                                    aria-label="任务中心"
+                                />
+                            </Tooltip>
                             <Tooltip title={t(panelOpen ? "topNav.closeAgent" : "topNav.openAgent")}>
                                 <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" icon={<Bot className="size-4" />} onClick={togglePanel} aria-label={t(panelOpen ? "topNav.closeAgent" : "topNav.openAgent")} />
                             </Tooltip>
@@ -109,6 +135,12 @@ export function AppTopNav() {
 
             <MobileNavDrawer open={mobileNavOpen} activeToolSlug={activeToolSlug} onClose={() => setMobileNavOpen(false)} />
             <AppConfigModal />
+            <TaskCenter open={taskCenterOpen} onClose={() => setTaskCenterOpen(false)} />
+            {hideHeader && (
+                <Button type="text" className="fixed right-4 top-4 z-30" icon={<ListTodo className="size-4" />} onClick={() => setTaskCenterOpen(true)} aria-label="任务中心">
+                    任务{taskCount > 0 ? ` ${taskCount}` : ""}
+                </Button>
+            )}
         </>
     );
 }

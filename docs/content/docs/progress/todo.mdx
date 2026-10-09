@@ -19,3 +19,6 @@ description: Planned follow-up work
 - Infinite Xia plugin: project/script/beat workflow and refresh persistence verified. Media upload, artifact review and AI integration still need browser verification. Archived legacy interfaces and services are not yet ported.
 
 - Fix the six frontend TypeScript diagnostics and the workspace-service duplicate hashFile definition before runtime acceptance. See [the maintained handoff](../../../HANDOFF.md).
+
+
+- 任务队列与日志 SDD：继续扩展 `specs/002-canvas-connection` 的需求、组件计划与 Q001–Q011，关联 `specs/001-local-works/data-model.md` 的 Generation 契约。最终设计为全局任务抽屉＋节点阶段＋发送快照/日志；视频首期已实现：任务抽屉、阶段事件、提交去重、本地队列暂停与原任务恢复；18 个定向用例通过。待完成旧新 AutoDL 声明对照、真实刷新/双标签故障验收及完整 QAC 场景。未新增并发/重试/超时设置，远程取消没有可用接口。

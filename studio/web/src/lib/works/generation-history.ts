@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import localforage from "localforage";
+import { nanoid } from "nanoid";
+import { initialGenerationTask, reduceGenerationTask, type GenerationTaskState } from "./generation-task-state";
+export type { GenerationTaskState } from "./generation-task-state";
 import { toLocatorId } from "./works-adapter";
 import { useWorksStore } from "@/stores/use-works-store";
 import { listPendingArchiveItems, removePendingArchiveItem } from "@/lib/works/canvas-archive";
@@ -37,13 +40,29 @@ export function sanitizeGenerationParameters(obj: unknown): Record<string, unkno
             clean[key] = sanitizeGenerationParameters(value);
         } else if (Array.isArray(value)) {
             clean[key] = value.map((item) =>
-                item && typeof item === "object" ? sanitizeGenerationParameters(item) : item,
+                item && typeof item === "object" ? sanitizeGenerationParameters(item) : typeof item === "string" ? sanitizeGenerationText(item) : item,
             );
         } else {
-            clean[key] = value;
+            clean[key] = typeof value === "string" ? sanitizeGenerationText(value) : value;
         }
     }
     return clean;
+}
+
+
+/** 脱敏文本保留可诊断地址，不保留 URL 凭据/签名。 */
+export function sanitizeGenerationText(value: string): string {
+    return value.replace(/https?:\/\/[^\s<>"']+/gi, (raw) => {
+        try {
+            const url = new URL(raw);
+            url.username = ""; url.password = "";
+            for (const key of Array.from(url.searchParams.keys())) {
+                if (/key|token|secret|password|signature|credential|authorization|^sig$|^x-amz-|^x-goog-/i.test(key)) url.searchParams.delete(key);
+            }
+            return url.toString();
+        } catch { return "[地址已脱敏]"; }
+    }).replace(/(Bearer\s+)[^\s"',;]+/gi, "$1[已脱敏]")
+      .replace(/((?:api[-_]?key|access[-_]?token|password|authorization|secret)\s*[:=]\s*)[^\s,;]+/gi, "$1[已脱敏]");
 }
 
 /**
@@ -65,6 +84,7 @@ export interface GenerationHistoryEntry {
     status: "pending" | "running" | "succeeded" | "failed" | "canceled";
     outputFileIds: string[];
     errorReason?: string;
+    task?: GenerationTaskState;
     createdAt: string;
     updatedAt: string;
 }
@@ -94,7 +114,12 @@ export function subscribeGenerationHistory(listener: GenerationHistoryChangeList
     };
 }
 
+let historyBroadcast: BroadcastChannel | undefined;
 function notifyHistoryChange(event: GenerationHistoryChangeEvent) {
+    if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
+        historyBroadcast ||= new BroadcastChannel("infinite-studio:generation-history");
+        historyBroadcast.postMessage({ type: "changed" });
+    }
     historyListeners.forEach((fn) => {
         try {
             fn(event);
@@ -120,6 +145,7 @@ export async function startGenerationHistory(params: {
     modelChannel: string;
     parameters?: Record<string, unknown>;
     taskId?: string;
+    task?: Partial<GenerationTaskState>;
 }): Promise<GenerationHistoryEntry> {
     const now = new Date().toISOString();
     const cleanSnapshot = sanitizeGenerationParameters(params.inputSnapshot);
@@ -139,6 +165,7 @@ export async function startGenerationHistory(params: {
         parameters: cleanParams,
         taskId: params.taskId || "",
         status: "running",
+        task: (params.task || params.inputSnapshot.mode === "video") ? initialGenerationTask(params.task, now) : undefined,
         outputFileIds: [],
         createdAt: now,
         updatedAt: now,
@@ -151,6 +178,15 @@ export async function startGenerationHistory(params: {
 
 let updateHistoryQueue: Promise<unknown> = Promise.resolve();
 
+function serializeHistoryWrite<T>(id: string, run: () => Promise<T>): Promise<T> {
+    const exclusive = () => typeof navigator !== "undefined" && navigator.locks
+        ? navigator.locks.request(`infinite-studio:history:${id}`, run)
+        : run();
+    const next = updateHistoryQueue.then(exclusive, exclusive);
+    updateHistoryQueue = next.then(() => undefined, () => undefined);
+    return next;
+}
+
 /**
  * 更新现有生成历史状态、远程任务 ID 或产物
  * 严格保护并发生成输出，合并追加而非单元素覆盖；使用任务队列防范 localforage 读写竞态
@@ -159,6 +195,8 @@ export async function updateGenerationHistory(
     id: string,
     patch: {
         workId?: string;
+        task?: Partial<Omit<GenerationTaskState, "events">>;
+        taskMessage?: string;
         taskId?: string;
         status?: "running" | "succeeded" | "failed" | "canceled";
         outputFileIds?: string[];
@@ -178,13 +216,29 @@ export async function updateGenerationHistory(
             }
         }
 
+        let task = existing.task;
+        if (patch.task) task = reduceGenerationTask(task || initialGenerationTask(), patch.task, sanitizeGenerationText(patch.taskMessage || "更新任务状态"), patch.task.reasonCode);
+        // 既有调用的 failed/canceled 不可把网络未知或停止查询伪报为远程终止。
+        if (task && patch.status && !["blocked", "needs_attention", "succeeded", "failed", "cancelled"].includes(task.status)) {
+            if (patch.status === "succeeded" && ["downloaded", "archived"].includes(task.outputState)) {
+                task = reduceGenerationTask(task, { status: "succeeded", connection: "available" }, "结果已保存", undefined);
+            } else if (patch.status === "failed" || patch.status === "canceled") {
+                const acceptedOrUnknown = task.submission === "accepted" || task.submission === "in_flight" || task.submission === "unknown";
+                task = reduceGenerationTask(task, {
+                    status: acceptedOrUnknown ? "needs_attention" : (patch.status === "canceled" ? "cancelled" : "failed"),
+                    submission: task.submission === "in_flight" ? "unknown" : task.submission,
+                    connection: acceptedOrUnknown ? "interrupted" : task.connection,
+                }, patch.status === "canceled" ? "本地执行已停止；远程任务是否取消未确认" : sanitizeGenerationText(patch.errorReason || "执行失败"), undefined);
+            }
+        }
         const updated: GenerationHistoryEntry = {
             ...existing,
+            task,
             workId: patch.workId && !existing.workId ? patch.workId : existing.workId,
             taskId: patch.taskId !== undefined ? patch.taskId : existing.taskId,
-            status: patch.status !== undefined ? patch.status : existing.status,
+            status: existing.task?.status === "succeeded" ? "succeeded" : existing.task?.status === "failed" ? "failed" : patch.status !== undefined ? patch.status : existing.status,
             outputFileIds: mergedOutputIds,
-            errorReason: patch.errorReason !== undefined ? patch.errorReason : existing.errorReason,
+            errorReason: patch.errorReason !== undefined ? sanitizeGenerationText(patch.errorReason) : existing.errorReason,
             updatedAt: new Date().toISOString(),
         };
 
@@ -193,9 +247,26 @@ export async function updateGenerationHistory(
         return updated;
     };
 
-    const next = updateHistoryQueue.then(run, run);
-    updateHistoryQueue = next.then(() => undefined, () => undefined);
-    return next;
+    return serializeHistoryWrite(id, run);
+}
+
+/** 与普通历史写入共用串行链，快照不变、事件与状态一起保存。 */
+export async function updateGenerationTask(
+    id: string,
+    patch: Partial<Omit<GenerationTaskState, "events">>,
+    message: string,
+    reasonCode?: string,
+): Promise<GenerationHistoryEntry | null> {
+    const run = async () => {
+        const existing = await historyStore.getItem<GenerationHistoryEntry>(id);
+        if (!existing) return null;
+        const task = reduceGenerationTask(existing.task || initialGenerationTask(), patch, sanitizeGenerationText(message), reasonCode, nanoid());
+        const entry = { ...existing, task, updatedAt: new Date().toISOString() };
+        await historyStore.setItem(id, entry);
+        notifyHistoryChange({ type: "updated", entry });
+        return entry;
+    };
+    return serializeHistoryWrite(id, run);
 }
 
 export async function attachGenerationOutputToWork(id: string, workId: string, fileId: string): Promise<boolean> {
@@ -262,7 +333,7 @@ export async function getGenerationHistoriesByIds(ids: string[]): Promise<Genera
  * 2. 跨作品切换后完成仍精准挂载到启动时捕获的起始作品，直连 API 提交；
  * 3. 服务端 commit 校验 outputFileIds 必须解析到 committed media 记录，过滤仅保留已确认的 media 记录。
  */
-export async function commitGenerationToWork(id: string): Promise<RecordChange | null> {
+export async function commitGenerationToWork(id: string, statusOverride?: GenerationHistoryEntry["status"]): Promise<RecordChange | null> {
     const entry = await historyStore.getItem<GenerationHistoryEntry>(id);
     if (!entry || !entry.workId) {
         // 未选择作品时保持独立本地记录，不挂载到全局作品
@@ -298,7 +369,7 @@ export async function commitGenerationToWork(id: string): Promise<RecordChange |
                 modelChannel: entry.modelChannel,
                 parameters: entry.parameters || {},
                 taskId: entry.taskId,
-                status: entry.status,
+                status: statusOverride || entry.status,
                 outputFileIds: committedOutputIds,
             },
         });

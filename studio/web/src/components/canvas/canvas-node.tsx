@@ -1,3 +1,4 @@
+import { TaskStatus } from "@/components/tasks/task-status";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
@@ -19,6 +20,7 @@ type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
 
 type CanvasNodeProps = {
+    canvasId?: string;
     data: CanvasNodeData;
     scale: number;
     isSelected: boolean;
@@ -85,6 +87,7 @@ type NodeContentRendererProps = {
 };
 
 export const CanvasNode = React.memo(function CanvasNode({
+    canvasId,
     data,
     scale,
     isSelected,
@@ -446,6 +449,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             {!referenceSelectionState && !isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
+            {(data.type === CanvasNodeType.Config || data.type === CanvasNodeType.Video) && canvasId ? <div className="absolute left-0 top-full z-20 max-w-full pt-1" onMouseDown={(event) => event.stopPropagation()}><TaskStatus nodeId={data.id} canvasId={canvasId} /></div> : null}
             {showPanel && !isGroup && renderPanel ? <div className="absolute left-1/2 top-full z-[70] w-[600px] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
         </div>
     );

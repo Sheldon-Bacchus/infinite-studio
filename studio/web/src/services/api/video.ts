@@ -18,8 +18,8 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
-type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: ReferenceAudio[]; referenceBindings?: CanvasVideoInputBinding[] };
+export type RequestOptions = { signal?: AbortSignal; onSubmitting?: () => Promise<void> };
+export type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: ReferenceAudio[]; referenceBindings?: CanvasVideoInputBinding[] };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
@@ -122,6 +122,7 @@ export async function createVideoGenerationTaskFromInput(config: AiConfig, input
     };
     return createVideoGenerationTask(inputConfig, input.prompt, input.images, {
         signal: options?.signal,
+        onSubmitting: options?.onSubmitting,
         videos: input.videos,
         audios: input.audios,
         referenceBindings: input.bindings,
@@ -146,6 +147,9 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
     const audios = await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
+    if (options?.onSubmitting) {
+        await options.onSubmitting();
+    }
     const result = videoPluginResult(
         await runModelPlugin({
             capability: "video",
@@ -185,12 +189,15 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
     throw new Error(apiText("scriptNoVideo"));
 }
 
-export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
+export type StoreGeneratedVideoOptions = { strict?: boolean };
+
+export async function storeGeneratedVideo(result: VideoGenerationResult, options?: StoreGeneratedVideoOptions): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
         try {
             return await uploadMediaFile(result.url, "video");
-        } catch {
+        } catch (error) {
+            if (options?.strict) throw error;
             return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         }
     }
@@ -259,6 +266,9 @@ async function createAutoDLVideoTask(config: AiConfig, model: string, prompt: st
     const workflowId = modelOptionName(model).trim();
     const body = await buildAutoDLRequestBody(workflowId, config, prompt, references, options);
     const url = withLocalProxy(`${autoDLBaseUrl(config)}/api/v1/comfyui/comfyui_workflow/${encodeURIComponent(workflowId)}`);
+    if (options?.onSubmitting) {
+        await options.onSubmitting();
+    }
     try {
         const response = await axios.post<AutoDLTaskResponse>(url, body, { headers: autoDLHeaders(config), signal: options?.signal });
         const payload = response.data;
@@ -318,6 +328,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
     videos.forEach((file) => body.append("video[]", file));
     audios.forEach((file) => body.append("audio[]", file));
+    if (options?.onSubmitting) {
+        await options.onSubmitting();
+    }
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error(apiText("noVideoTaskId"));
@@ -369,6 +382,9 @@ async function createGeminiVideoTask(config: AiConfig, model: string, prompt: st
     }
     if (videos[0]) instance.video = await fileToGeminiInline(videos[0]);
     if (audios[0]) instance.audio = await fileToGeminiInline(audios[0]);
+    if (options?.onSubmitting) {
+        await options.onSubmitting();
+    }
     try {
         const created = unwrapEnvelope((await axios.post<ApiEnvelope<GeminiVideoOperation>>(geminiVideoUrl(config, model, "predictLongRunning"), {
             instances: [instance],

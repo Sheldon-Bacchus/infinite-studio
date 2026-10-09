@@ -4,6 +4,7 @@ import { Button, Image, Modal } from "antd";
 import { FileText, Group, Image as ImageIcon, Music2, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { TaskStatus } from "@/components/tasks/task-status";
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -17,6 +18,7 @@ import { buildVideoInputList } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasSubject, type CanvasVideoBinding, type VideoInputItem } from "@/types/canvas";
 
 type CanvasConfigComposerProps = {
+    canvasId?: string;
     nodeId: string;
     nodes: CanvasNodeData[];
     subjects?: CanvasSubject[];
@@ -45,6 +47,7 @@ type MentionState = {
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
 export function CanvasConfigComposer({
+    canvasId,
     nodeId,
     nodes,
     subjects = [],
@@ -262,6 +265,7 @@ export function CanvasConfigComposer({
                     }
                 }}
             />
+            <TaskStatus nodeId={nodeId} canvasId={canvasId} />
             <div className="mb-1 text-xs font-semibold">编辑当前提示词</div>
             {isVideoMode ? (
                 <div className="relative rounded-xl border p-2" style={{ borderColor: theme.toolbar.border }}>
